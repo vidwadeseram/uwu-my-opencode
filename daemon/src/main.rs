@@ -1,3 +1,4 @@
+mod commander;
 mod config;
 mod error;
 mod installer;
@@ -8,6 +9,7 @@ mod tunnel;
 mod workspace;
 
 use clap::Parser;
+use commander::CommanderState;
 use config::{AppConfig, Cli};
 use server::{create_router, AppContext};
 use state::StateManager;
@@ -103,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
         config: config.clone(),
         state,
         supervisor: supervisor.clone(),
+        commander: CommanderState::new(config.tmux_bin.clone()),
     };
 
     let router = create_router(ctx);
