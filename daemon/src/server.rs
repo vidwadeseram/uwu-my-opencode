@@ -51,6 +51,7 @@ pub struct WorkspaceResponse {
     pub status: String,
     pub created_at: String,
     pub browser_url: Option<String>,
+    pub terminal_url: Option<String>,
     pub size_mb: Option<u64>,
 }
 
@@ -91,6 +92,9 @@ impl From<&crate::state::Workspace> for WorkspaceResponse {
         let browser_url = ws
             .ttyd_port
             .map(|port| format!("http://127.0.0.1:{}", port));
+        let terminal_url = ws
+            .ttyd_port
+            .map(|_| format!("/terminal/?arg=attach&arg=-t&arg=ws-{}", ws.name));
 
         Self {
             id: ws.id.clone(),
@@ -101,6 +105,7 @@ impl From<&crate::state::Workspace> for WorkspaceResponse {
             status: format!("{:?}", ws.status).to_lowercase(),
             created_at: ws.created_at.to_rfc3339(),
             browser_url,
+            terminal_url,
             size_mb: None,
         }
     }
