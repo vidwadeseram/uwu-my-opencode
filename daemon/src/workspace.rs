@@ -348,21 +348,13 @@ impl WorkspaceManager {
     }
 
     fn opencode_launch_command(&self, dir: &Path) -> String {
-        let opencode_entry = self
-            .config
-            .opencode_repo
-            .join("packages")
-            .join("opencode")
-            .join("src")
-            .join("index.ts")
-            .to_string_lossy()
-            .to_string();
+        let opencode_root = self.config.opencode_repo.to_string_lossy().to_string();
         let cfg_dir = dir.join(".opencode").to_string_lossy().to_string();
 
         format!(
-            "OPENCODE_PERMISSION='{{\"all\":\"allow\"}}' OPENCODE_CONFIG_DIR={} bun run --conditions=browser {}",
+            "OPENCODE_PERMISSION='{{\"all\":\"allow\"}}' OPENCODE_CONFIG_DIR={} bun run --cwd {} --conditions=browser packages/opencode/src/index.ts",
             Self::shell_quote(&cfg_dir),
-            Self::shell_quote(&opencode_entry),
+            Self::shell_quote(&opencode_root),
         )
     }
 
