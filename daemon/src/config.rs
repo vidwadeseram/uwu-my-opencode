@@ -28,6 +28,12 @@ pub struct Cli {
     #[arg(long, default_value_t = 7681)]
     pub ttyd_port_start: u16,
 
+    #[arg(long, default_value = "admin")]
+    pub ttyd_user: String,
+
+    #[arg(long, default_value = "admin")]
+    pub ttyd_pass: String,
+
     #[arg(long)]
     pub tmux_bin: Option<PathBuf>,
 
@@ -69,6 +75,8 @@ pub struct AppConfig {
     pub port_range_start: u16,
     pub port_range_end: u16,
     pub ttyd_port_start: u16,
+    pub ttyd_user: String,
+    pub ttyd_pass: String,
     pub tmux_bin: String,
     pub opencode_repo: PathBuf,
     pub oh_my_opencode_repo: PathBuf,
@@ -106,6 +114,8 @@ impl AppConfig {
             port_range_start: cli.port_range_start,
             port_range_end: cli.port_range_end,
             ttyd_port_start: cli.ttyd_port_start,
+            ttyd_user: cli.ttyd_user.clone(),
+            ttyd_pass: cli.ttyd_pass.clone(),
             tmux_bin,
             opencode_repo,
             oh_my_opencode_repo,

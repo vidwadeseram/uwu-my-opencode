@@ -341,20 +341,27 @@ impl WorkspaceManager {
         tokio::fs::write(plugin_file, plugin_content).await?;
 
         let host_project_file = commands_dir.join("host-project.md");
-        let host_project_content = "---\ndescription: host project locally on port 3000\nmodel: opencode/kimi-k2.5\nsubtask: false\n---\n\nHost this project for preview.\n\n1) Detect project stack and install dependencies if needed\n2) Start the dev server on port 3000\n3) If 3000 is unavailable, use 3001 and report it\n4) Verify with curl that HTTP returns 200\n5) Print final local URL and what command is running\n\nPrefer non-blocking run methods (tmux pane / background process) so the terminal stays usable.\n";
+        let host_project_content = "---\ndescription: host current project and provide a URL reachable from my PC\nsubtask: false\n---\n\nHost this project for preview.\n\nContext:\n- opencode is running on a remote Linux server via ttyd.\n- The final preview URL must be reachable from my PC browser, not only from the server itself.\n- Use any available model in this environment (do not depend on one specific model).\n\nRequired flow (do exactly):\n\n1) Find PROJECT_DIR (any stack, not only JS)\n- If current dir has one of: package.json, pyproject.toml, requirements.txt, go.mod, Cargo.toml, Gemfile, composer.json, index.html -> use current dir.\n- Otherwise search child dirs up to depth 3 for those files and pick the nearest match.\n- Print PROJECT_DIR before running anything.\n\n2) Pick port and bind address\n- Use port 3000 first, if busy use 3001.\n- Start server on 0.0.0.0 when possible so it can be reached externally.\n\n3) Install deps + start command by stack\n- Node/JS/TS (package.json): detect package manager from lockfile, install, then run script in order dev -> start -> preview.\n- Python (pyproject.toml/requirements.txt): install deps (pip/poetry/uv) and run framework dev server on chosen port.\n- Go (go.mod): go run/build and serve on chosen port if app supports PORT.\n- Rust (Cargo.toml): cargo run with chosen port env if supported.\n- Static site (index.html only): python3 -m http.server <PORT> --bind 0.0.0.0.\n\n4) Error recovery\n- If output contains dependency errors such as 'Cannot find module', 'Module not found', 'ERR_MODULE_NOT_FOUND', missing package/import, or command not found:\n  a) stop process\n  b) run dependency install/fix for that stack\n  c) retry once\n\n5) Verify local service\n- Wait until curl http://127.0.0.1:<PORT> succeeds (HTTP 200-399) or timeout.\n\n6) Make it reachable from my PC\n- If cloudflared exists, run a quick tunnel to http://127.0.0.1:<PORT> and print the public https://*.trycloudflare.com URL.\n- If cloudflared is unavailable, print exact command to install it and also print fallback URL using server public IP/domain and chosen port.\n\n7) Final output\n- Print: PROJECT_DIR, detected stack, install command, run command, local URL, and public URL for PC access.\n";
         tokio::fs::write(host_project_file, host_project_content).await?;
 
         Ok(())
     }
 
     fn opencode_launch_command(&self, dir: &Path) -> String {
-        let opencode_root = self.config.opencode_repo.to_string_lossy().to_string();
+        let opencode_pkg = self
+            .config
+            .opencode_repo
+            .join("packages")
+            .join("opencode")
+            .to_string_lossy()
+            .to_string();
         let cfg_dir = dir.join(".opencode").to_string_lossy().to_string();
 
         format!(
-            "OPENCODE_PERMISSION='{{\"all\":\"allow\"}}' OPENCODE_CONFIG_DIR={} bun run --cwd {} --conditions=browser packages/opencode/src/index.ts",
+            "OPENCODE_PERMISSION='{{\"all\":\"allow\"}}' OPENCODE_CONFIG_DIR={} bun --cwd {} --conditions=browser src/index.ts {}",
             Self::shell_quote(&cfg_dir),
-            Self::shell_quote(&opencode_root),
+            Self::shell_quote(&opencode_pkg),
+            Self::shell_quote(&dir.to_string_lossy()),
         )
     }
 
@@ -490,7 +497,7 @@ impl WorkspaceManager {
         let tmux = self.tmux().to_string();
         let session = "uwu-main";
         let ttyd_port_str = ttyd_port.to_string();
-        let credential = "admin:admin";
+        let credential = format!("{}:{}", self.config.ttyd_user, self.config.ttyd_pass);
         let ttyd_cmd_str = format!(
             "ttyd --port {} -W -t fontSize=13 -t lineHeight=1 --credential {} {} attach -t {}",
             ttyd_port, credential, tmux, session
@@ -507,7 +514,7 @@ impl WorkspaceManager {
                     "-t",
                     "lineHeight=1",
                     "--credential",
-                    credential,
+                    &credential,
                     &tmux,
                     "attach",
                     "-t",
@@ -591,7 +598,7 @@ impl WorkspaceManager {
         }
 
         let ttyd_port_str = ttyd_port.to_string();
-        let credential = "admin:admin";
+        let credential = format!("{}:{}", self.config.ttyd_user, self.config.ttyd_pass);
         let ttyd_cmd_str = format!(
             "ttyd --port {} --credential {} {} attach -t {}",
             ttyd_port, credential, tmux, session
@@ -603,7 +610,7 @@ impl WorkspaceManager {
                     "--port",
                     &ttyd_port_str,
                     "--credential",
-                    credential,
+                    &credential,
                     &tmux,
                     "attach",
                     "-t",

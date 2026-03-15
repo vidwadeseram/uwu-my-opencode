@@ -125,7 +125,7 @@ pub fn run_install(
 
     run_sudo("installing system packages", &["apt-get", "update", "-qq"]);
     run_sudo(
-        "installing build tools, nginx, certbot, tmux, zsh",
+        "installing build tools, nginx, certbot, tmux, zsh, neovim",
         &[
             "apt-get",
             "install",
@@ -138,6 +138,7 @@ pub fn run_install(
             "certbot",
             "python3-certbot-nginx",
             "tmux",
+            "neovim",
             "zsh",
             "libevent-dev",
             "libncurses-dev",
@@ -146,7 +147,16 @@ pub fn run_install(
             "pkg-config",
             "bison",
             "libtool",
+            "luarocks",
+            "lua5.1",
+            "liblua5.1-0-dev",
         ],
+    );
+
+    let nvim_install_script = "set -euo pipefail; arch=$(uname -m); case \"$arch\" in x86_64) nvim_arch=linux-x86_64 ;; aarch64|arm64) nvim_arch=linux-arm64 ;; *) echo unsupported arch:$arch; exit 1 ;; esac; ver=v0.11.3; url=\"https://github.com/neovim/neovim/releases/download/${ver}/nvim-${nvim_arch}.tar.gz\"; tmp=/tmp/nvim.tgz; curl -fsSL \"$url\" -o \"$tmp\"; rm -rf /opt/nvim; mkdir -p /opt/nvim; tar -xzf \"$tmp\" -C /opt/nvim --strip-components=1; ln -sf /opt/nvim/bin/nvim /usr/local/bin/nvim";
+    run_sudo(
+        "installing neovim 0.11.3",
+        &["bash", "-lc", nvim_install_script],
     );
 
     let has_ttyd = Command::new("which")
@@ -260,6 +270,16 @@ pub fn run_install(
         run("building forked tmux", "bash", &["-c", &build_script]);
     }
 
+    run_sudo(
+        "linking forked tmux globally",
+        &[
+            "ln",
+            "-sf",
+            &format!("{}/bin/tmux", build_prefix.to_string_lossy()),
+            "/usr/local/bin/tmux",
+        ],
+    );
+
     let bun_bin = format!("{home}/.bun/bin/bun");
     let opencode_dir = install_dir.join("opencode").to_string_lossy().to_string();
     let omo_dir = install_dir
@@ -272,9 +292,35 @@ pub fn run_install(
         &["install", "--cwd", &opencode_dir],
     );
     run(
+        "installing opencode package deps",
+        &bun_bin,
+        &[
+            "install",
+            "--cwd",
+            &format!("{}/packages/opencode", opencode_dir),
+        ],
+    );
+    run(
         "installing oh-my-opencode deps",
         &bun_bin,
         &["install", "--cwd", &omo_dir],
+    );
+
+    let opencode_wrapper = format!("{}/scripts/run-opencode.sh", install_str);
+    let opencode_wrapper_content = format!(
+        "#!/usr/bin/env bash\nset -euo pipefail\nROOT=\"{}/opencode/packages/opencode\"\nif [ \"$#\" -eq 0 ]; then\n  exec \"{}\" --cwd \"$ROOT\" --conditions=browser src/index.ts \"$PWD\"\nfi\nexec \"{}\" --cwd \"$ROOT\" --conditions=browser src/index.ts \"$@\"\n",
+        install_str, bun_bin, bun_bin
+    );
+    std::fs::create_dir_all(format!("{}/scripts", install_str)).ok();
+    std::fs::write(&opencode_wrapper, &opencode_wrapper_content).ok();
+    run(
+        "making opencode wrapper executable",
+        "chmod",
+        &["+x", &opencode_wrapper],
+    );
+    run_sudo(
+        "linking opencode globally",
+        &["ln", "-sf", &opencode_wrapper, "/usr/local/bin/opencode"],
     );
 
     let cargo_bin = format!("{home}/.cargo/bin/cargo");
@@ -302,8 +348,16 @@ pub fn run_install(
 
     let wrapper = format!("{}/scripts/run-daemon.sh", install_str);
     let wrapper_content = format!(
-        "#!/usr/bin/env bash\nexport PATH=\"{}\"\nexport UWU_EXECUTE_COMMANDS=true\nexec \"{}\" \\\n  --host 127.0.0.1 \\\n  --port 18080 \\\n  --workspace-root \"{}\" \\\n  --state-file \"{}/.config/uwu/state.json\" \\\n  --ttyd-port-start 7681 \\\n  --tmux-bin \"{}\" \\\n  --opencode-repo \"{}/opencode\" \\\n  --oh-my-opencode-repo \"{}/oh-my-opencode\"\n",
-        env_path, daemon_bin, workspace_str, home, tmux_bin, install_str, install_str
+        "#!/usr/bin/env bash\nexport PATH=\"{}\"\nexport UWU_EXECUTE_COMMANDS=true\nexec \"{}\" \\\n  --host 127.0.0.1 \\\n  --port 18080 \\\n  --workspace-root \"{}\" \\\n  --state-file \"{}/.config/uwu/state.json\" \\\n  --ttyd-port-start 7681 \\\n  --ttyd-user \"{}\" \\\n  --ttyd-pass \"{}\" \\\n  --tmux-bin \"{}\" \\\n  --opencode-repo \"{}/opencode\" \\\n  --oh-my-opencode-repo \"{}/oh-my-opencode\"\n",
+        env_path,
+        daemon_bin,
+        workspace_str,
+        home,
+        ttyd_user,
+        ttyd_pass,
+        tmux_bin,
+        install_str,
+        install_str
     );
     std::fs::create_dir_all(format!("{}/scripts", install_str)).ok();
     std::fs::write(&wrapper, &wrapper_content).ok();
