@@ -593,9 +593,10 @@ Required flow (do exactly):
         let session = "uwu-main";
         let ttyd_port_str = ttyd_port.to_string();
         let credential = format!("{}:{}", self.config.ttyd_user, self.config.ttyd_pass);
+        let font_family = "JetBrainsMono Nerd Font, JetBrains Mono, monospace";
         let ttyd_cmd_str = format!(
-            "ttyd --port {} -W -t fontSize=13 -t lineHeight=1 -t titleFixed=uwu workspace --credential {} {} attach -t {}",
-            ttyd_port, credential, tmux, session
+            "ttyd --port {} -W -t fontSize=13 -t lineHeight=1 -t 'fontFamily={}' -t titleFixed=uwu\\ workspace --credential {} {} attach -t {}",
+            ttyd_port, font_family, credential, tmux, session
         );
 
         let browser_url = if self.config.execute_commands {
@@ -608,6 +609,8 @@ Required flow (do exactly):
                     "fontSize=13",
                     "-t",
                     "lineHeight=1",
+                    "-t",
+                    &format!("fontFamily={}", font_family),
                     "-t",
                     "titleFixed=uwu workspace",
                     "--credential",
