@@ -90,26 +90,113 @@ fn is_tui_noise(line: &str) -> bool {
     if s.chars().all(|c| !c.is_alphanumeric()) {
         return true;
     }
-    // OpenCode TUI chrome: status bar, prompt placeholder, session info, keyboard hints
+
+    // OpenCode TUI chrome
     if s.contains("ctrl+t variants") || s.contains("tab agents") || s.contains("ctrl+p commands") {
         return true;
     }
     if s.starts_with("~/") && s.contains("MCP") && s.contains("/status") {
         return true;
     }
-    if s.contains("Ask anything...") {
+    if s.contains("Ask anything...") || s.contains("OpenCode Zen") || s.contains("Big Pickle") {
         return true;
     }
-    if s.contains("OpenCode Zen") || s.contains("Big Pickle") || s.contains("(Ultraworker)") {
+    if s.contains("(Ultraworker)") || s.contains("(Ultrawork)") {
         return true;
     }
-    // >50% non-ASCII chars indicates residual TUI art
+
+    // Nvim / LazyVim dashboard items (icon + label + single-char shortcut pattern)
+    static NVIM_DASHBOARD_ITEMS: &[&str] = &[
+        "Find file",
+        "New file",
+        "Recent files",
+        "Projects",
+        "Find text",
+        "Config",
+        "Restore Session",
+        "Lazy Extras",
+        "Lazy",
+        "Quit",
+        "LAZYVIM",
+    ];
+    for item in NVIM_DASHBOARD_ITEMS {
+        if s.contains(item) {
+            return true;
+        }
+    }
+    if s.starts_with("Neovim loaded") || s.starts_with("loaded") {
+        return true;
+    }
+
+    // lazy.nvim plugin manager output
+    if s.contains("Install (I)") || s.contains("Update (U)") || s.contains("Sync (S)") {
+        return true;
+    }
+    if s.starts_with("Total:") && s.contains("plugins") {
+        return true;
+    }
+    if s.starts_with("Breaking Changes") {
+        return true;
+    }
+    if s.contains("lazy") && s.contains("loaded:") {
+        return true;
+    }
+
+    // Git commit SHA lines (7+ hex chars at start, typical in lazy.nvim changelog)
+    let first_word = s.split_whitespace().next().unwrap_or("");
+    if first_word.len() >= 7
+        && first_word.len() <= 12
+        && first_word.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        return true;
+    }
+
+    // Tmux status bar patterns
+    if s.starts_with("[uwu-main]") {
+        return true;
+    }
+
+    // Lines that are a menu entry: text + single char at end separated by lots of space
+    let alphanumeric_count = s.chars().filter(|c| c.is_alphanumeric()).count();
+    let space_count = s.chars().filter(|c| *c == ' ').count();
+    if alphanumeric_count > 2 && space_count > alphanumeric_count * 2 {
+        return true;
+    }
+
+    // >50% non-ASCII indicates residual TUI art or icon-heavy lines
     let non_ascii_ratio =
         s.chars().filter(|c| !c.is_ascii()).count() as f64 / s.chars().count().max(1) as f64;
-    if non_ascii_ratio > 0.5 {
+    if non_ascii_ratio > 0.4 {
         return true;
     }
+
     false
+}
+
+fn is_meaningful_content(text: &str) -> bool {
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    if lines.is_empty() {
+        return false;
+    }
+
+    let total_alpha_chars: usize = lines
+        .iter()
+        .map(|l| l.chars().filter(|c| c.is_alphanumeric()).count())
+        .sum();
+
+    if total_alpha_chars < 20 {
+        return false;
+    }
+
+    let meaningful_lines = lines
+        .iter()
+        .filter(|l| {
+            let trimmed = l.trim();
+            trimmed.len() > 3 && trimmed.split_whitespace().count() >= 2
+        })
+        .count();
+
+    meaningful_lines >= 1
 }
 
 pub async fn capture_pane(tmux_bin: &str, target: &str) -> Result<String> {
@@ -349,15 +436,17 @@ impl CommanderState {
         session.last_capture = new_capture;
 
         if let Some(content) = diff {
-            let message = Message {
-                id: next_id,
-                role: "assistant".to_string(),
-                content,
-                timestamp: Utc::now(),
-            };
-            session.messages.push(message.clone());
-            inner.next_message_id = inner.next_message_id.saturating_add(1);
-            created.push(message);
+            if is_meaningful_content(&content) {
+                let message = Message {
+                    id: next_id,
+                    role: "assistant".to_string(),
+                    content,
+                    timestamp: Utc::now(),
+                };
+                session.messages.push(message.clone());
+                inner.next_message_id = inner.next_message_id.saturating_add(1);
+                created.push(message);
+            }
         }
 
         Ok(created)
