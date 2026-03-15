@@ -144,6 +144,8 @@ pub fn run_install(
             "autoconf",
             "automake",
             "pkg-config",
+            "bison",
+            "libtool",
         ],
     );
 
@@ -247,39 +249,15 @@ pub fn run_install(
     let build_prefix_str = format!("--prefix={}", build_prefix.to_string_lossy());
 
     if !install_dir.join("build/tmux/bin/tmux").exists() {
-        let has_configure = tmux_dir.join("configure").exists();
-        if !has_configure {
-            run(
-                "autogen tmux",
-                "sh",
-                &[&format!("{}/autogen.sh", tmux_dir_str)],
-            );
-        }
-        run(
-            "configure tmux",
-            "bash",
-            &[
-                "-c",
-                &format!(
-                    "cd {} && ./configure {} --disable-utf8proc",
-                    tmux_dir_str, build_prefix_str
-                ),
-            ],
-        );
         let nproc = std::process::Command::new("nproc")
             .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             .unwrap_or_else(|_| "2".to_string());
-        run(
-            "building tmux",
-            "bash",
-            &["-c", &format!("cd {} && make -j{}", tmux_dir_str, nproc)],
+        let build_script = format!(
+            "cd {} && sh autogen.sh && ./configure {} --disable-utf8proc && make -j{} && make install",
+            tmux_dir_str, build_prefix_str, nproc
         );
-        run(
-            "installing tmux",
-            "bash",
-            &["-c", &format!("cd {} && make install", tmux_dir_str)],
-        );
+        run("building forked tmux", "bash", &["-c", &build_script]);
     }
 
     let bun_bin = format!("{home}/.bun/bin/bun");
