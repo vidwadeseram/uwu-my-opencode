@@ -30,6 +30,12 @@ pub struct Cli {
 
     #[arg(long)]
     pub tmux_bin: Option<PathBuf>,
+
+    #[arg(long, default_value = "../opencode")]
+    pub opencode_repo: PathBuf,
+
+    #[arg(long, default_value = "../oh-my-opencode")]
+    pub oh_my_opencode_repo: PathBuf,
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
@@ -48,6 +54,8 @@ pub struct AppConfig {
     pub port_range_end: u16,
     pub ttyd_port_start: u16,
     pub tmux_bin: String,
+    pub opencode_repo: PathBuf,
+    pub oh_my_opencode_repo: PathBuf,
     pub execute_commands: bool,
 }
 
@@ -56,6 +64,17 @@ impl AppConfig {
         let execute_commands = std::env::var("UWU_EXECUTE_COMMANDS")
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false);
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let opencode_repo = if cli.opencode_repo.is_absolute() {
+            cli.opencode_repo.clone()
+        } else {
+            cwd.join(&cli.opencode_repo)
+        };
+        let oh_my_opencode_repo = if cli.oh_my_opencode_repo.is_absolute() {
+            cli.oh_my_opencode_repo.clone()
+        } else {
+            cwd.join(&cli.oh_my_opencode_repo)
+        };
 
         let tmux_bin = cli
             .tmux_bin
@@ -72,6 +91,8 @@ impl AppConfig {
             port_range_end: cli.port_range_end,
             ttyd_port_start: cli.ttyd_port_start,
             tmux_bin,
+            opencode_repo,
+            oh_my_opencode_repo,
             execute_commands,
         }
     }

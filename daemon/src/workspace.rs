@@ -110,6 +110,161 @@ impl WorkspaceManager {
         Ok(dirs)
     }
 
+    async fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), AppError> {
+        tokio::fs::create_dir_all(dst).await?;
+        let mut entries = tokio::fs::read_dir(src).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let src_path = entry.path();
+            let dst_path = dst.join(entry.file_name());
+            if src_path.is_dir() {
+                Box::pin(Self::copy_dir_recursive(&src_path, &dst_path)).await?;
+            } else {
+                if let Some(parent) = dst_path.parent() {
+                    tokio::fs::create_dir_all(parent).await?;
+                }
+                tokio::fs::copy(&src_path, &dst_path).await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn bootstrap_linux_editor_configs(&self) -> Result<Vec<CommandResult>, AppError> {
+        if std::env::consts::OS != "linux" {
+            return Ok(Vec::new());
+        }
+
+        let home = std::env::var("HOME")
+            .map(PathBuf::from)
+            .map_err(|_| AppError::BadRequest("HOME is not set".to_string()))?;
+
+        let tmux_target = home.join(".tmux.conf");
+        let nvim_target = home.join(".config").join("nvim");
+        let tmux_missing = !tmux_target.exists();
+        let nvim_missing = !nvim_target.exists();
+
+        if !tmux_missing && !nvim_missing {
+            return Ok(Vec::new());
+        }
+
+        let cache_root = home.join(".cache").join("uwu-dotfiles");
+        let dotfiles_repo = "https://github.com/vidwadeseram/dotfiles.git";
+        let cache_root_str = cache_root.to_string_lossy().to_string();
+
+        let mut commands = Vec::new();
+        if cache_root.exists() {
+            commands.push(
+                self.run_cmd(&["git", "-C", &cache_root_str, "pull", "--ff-only"])
+                    .await?,
+            );
+        } else {
+            commands.push(
+                self.run_cmd(&[
+                    "git",
+                    "clone",
+                    "--depth",
+                    "1",
+                    dotfiles_repo,
+                    &cache_root_str,
+                ])
+                .await?,
+            );
+        }
+
+        let tmux_src = cache_root.join("tmux").join(".config").join("tmux").join("tmux.conf");
+        let nvim_src = cache_root.join("nvim").join(".config").join("nvim");
+
+        if tmux_missing && tmux_src.exists() {
+            tokio::fs::copy(&tmux_src, &tmux_target).await?;
+            commands.push(CommandResult {
+                command: format!(
+                    "copy {} {}",
+                    tmux_src.to_string_lossy(),
+                    tmux_target.to_string_lossy()
+                ),
+                executed: true,
+                success: Some(true),
+                stdout: None,
+                stderr: None,
+            });
+        }
+
+        if nvim_missing && nvim_src.exists() {
+            if let Some(parent) = nvim_target.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            Self::copy_dir_recursive(&nvim_src, &nvim_target).await?;
+            commands.push(CommandResult {
+                command: format!(
+                    "copy {} {}",
+                    nvim_src.to_string_lossy(),
+                    nvim_target.to_string_lossy()
+                ),
+                executed: true,
+                success: Some(true),
+                stdout: None,
+                stderr: None,
+            });
+        }
+
+        Ok(commands)
+    }
+
+    fn shell_quote(value: &str) -> String {
+        format!(
+            "\"{}\"",
+            value.replace('\\', "\\\\").replace('"', "\\\"")
+        )
+    }
+
+    async fn setup_workspace_opencode_files(&self, dir: &Path) -> Result<(), AppError> {
+        let opencode_dir = dir.join(".opencode");
+        let plugins_dir = opencode_dir.join("plugins");
+        let commands_dir = opencode_dir.join("command");
+
+        tokio::fs::create_dir_all(&plugins_dir).await?;
+        tokio::fs::create_dir_all(&commands_dir).await?;
+
+        let oh_my_src = self
+            .config
+            .oh_my_opencode_repo
+            .join("src")
+            .join("index.ts")
+            .to_string_lossy()
+            .to_string();
+
+        let plugin_file = plugins_dir.join("oh-my-opencode.ts");
+        let plugin_content = format!(
+            "import OhMyOpenCodePlugin from \"{}\";\nexport default OhMyOpenCodePlugin;\n",
+            oh_my_src.replace('\\', "\\\\")
+        );
+        tokio::fs::write(plugin_file, plugin_content).await?;
+
+        let host_project_file = commands_dir.join("host-project.md");
+        let host_project_content = "---\ndescription: host project locally on port 3000\nmodel: opencode/kimi-k2.5\nsubtask: false\n---\n\nHost this project for preview.\n\n1) Detect project stack and install dependencies if needed\n2) Start the dev server on port 3000\n3) If 3000 is unavailable, use 3001 and report it\n4) Verify with curl that HTTP returns 200\n5) Print final local URL and what command is running\n\nPrefer non-blocking run methods (tmux pane / background process) so the terminal stays usable.\n";
+        tokio::fs::write(host_project_file, host_project_content).await?;
+
+        Ok(())
+    }
+
+    fn opencode_launch_command(&self, dir: &Path) -> String {
+        let opencode_entry = self
+            .config
+            .opencode_repo
+            .join("packages")
+            .join("opencode")
+            .join("src")
+            .join("index.ts")
+            .to_string_lossy()
+            .to_string();
+        let cfg_dir = dir.join(".opencode").to_string_lossy().to_string();
+
+        format!(
+            "OPENCODE_PERMISSION='{{\"all\":\"allow\"}}' OPENCODE_CONFIG_DIR={} bun run --conditions=browser {}",
+            Self::shell_quote(&cfg_dir),
+            Self::shell_quote(&opencode_entry),
+        )
+    }
+
     pub async fn bootstrap_tmux_tabs(&self) -> Result<Vec<CommandResult>, AppError> {
         let tmux = self.tmux().to_string();
         let session = "uwu-main";
@@ -129,6 +284,8 @@ impl WorkspaceManager {
         );
 
         let first_dir = dirs[0].to_string_lossy().to_string();
+        self.setup_workspace_opencode_files(&dirs[0]).await?;
+        let first_opencode_cmd = self.opencode_launch_command(&dirs[0]);
         commands.push(
             self.run_cmd(&[
                 &tmux,
@@ -173,7 +330,7 @@ impl WorkspaceManager {
                 "send-keys",
                 "-t",
                 &format!("{}:0.0", session),
-                "OPENCODE_PERMISSION='{\"all\":\"allow\"}' opencode",
+                &first_opencode_cmd,
                 "Enter",
             ])
             .await?,
@@ -183,6 +340,8 @@ impl WorkspaceManager {
             let window_name = format!("workspace-{}", idx + 1);
             let target_pane = format!("{}:{}.0", session, idx);
             let dir_str = dir.to_string_lossy().to_string();
+            self.setup_workspace_opencode_files(dir).await?;
+            let opencode_cmd = self.opencode_launch_command(dir);
 
             commands.push(
                 self.run_cmd(&[
@@ -217,7 +376,7 @@ impl WorkspaceManager {
                     "send-keys",
                     "-t",
                     &target_pane,
-                    "OPENCODE_PERMISSION='{\"all\":\"allow\"}' opencode",
+                    &opencode_cmd,
                     "Enter",
                 ])
                 .await?,

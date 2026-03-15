@@ -47,6 +47,17 @@ async fn main() -> anyhow::Result<()> {
     let supervisor = ProcessSupervisor::new();
 
     let workspace_manager = WorkspaceManager::new(config.clone(), supervisor.clone());
+
+    let bootstrap_dotfiles = workspace_manager.bootstrap_linux_editor_configs().await?;
+    for command in bootstrap_dotfiles {
+        info!(
+            command = %command.command,
+            executed = command.executed,
+            success = ?command.success,
+            "linux dotfiles bootstrap"
+        );
+    }
+
     let bootstrap_commands = workspace_manager.bootstrap_tmux_tabs().await?;
     for command in bootstrap_commands {
         info!(
