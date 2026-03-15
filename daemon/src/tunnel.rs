@@ -61,7 +61,10 @@ impl TunnelManager {
             .unwrap_or(false);
 
         if !has_cloudflared {
-            info!(port = local_port, "cloudflared not found, using localhost URL");
+            info!(
+                port = local_port,
+                "cloudflared not found, using localhost URL"
+            );
             return Ok(TunnelCommandResult {
                 command: cmd_str,
                 executed: false,
@@ -80,9 +83,7 @@ impl TunnelManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| {
-                AppError::CommandFailed(format!("failed to spawn cloudflared: {}", e))
-            })?;
+            .map_err(|e| AppError::CommandFailed(format!("failed to spawn cloudflared: {}", e)))?;
 
         let tunnel_url = parse_tunnel_url_from_child(&mut child).await;
 

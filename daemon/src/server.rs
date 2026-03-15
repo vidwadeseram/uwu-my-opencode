@@ -112,7 +112,8 @@ async fn list_workspaces(
     State(ctx): State<AppContext>,
 ) -> Result<Json<Vec<WorkspaceResponse>>, AppError> {
     let workspaces = ctx.state.list_workspaces().await;
-    let responses: Vec<WorkspaceResponse> = workspaces.iter().map(WorkspaceResponse::from).collect();
+    let responses: Vec<WorkspaceResponse> =
+        workspaces.iter().map(WorkspaceResponse::from).collect();
     Ok(Json(responses))
 }
 

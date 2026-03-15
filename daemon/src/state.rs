@@ -106,7 +106,13 @@ impl StateManager {
     }
 
     pub async fn get_workspace(&self, id: &str) -> Option<Workspace> {
-        self.state.read().await.workspaces.iter().find(|w| w.id == id).cloned()
+        self.state
+            .read()
+            .await
+            .workspaces
+            .iter()
+            .find(|w| w.id == id)
+            .cloned()
     }
 
     pub async fn create_workspace(
@@ -117,7 +123,10 @@ impl StateManager {
         let mut state = self.state.write().await;
 
         if state.workspaces.iter().any(|w| w.name == name) {
-            return Err(AppError::Conflict(format!("workspace '{}' already exists", name)));
+            return Err(AppError::Conflict(format!(
+                "workspace '{}' already exists",
+                name
+            )));
         }
 
         let id = Uuid::new_v4().to_string();
@@ -126,7 +135,9 @@ impl StateManager {
         let ttyd_port = state.next_ttyd_port;
 
         if port > self.port_range_end {
-            return Err(AppError::BadRequest("no available ports in range".to_string()));
+            return Err(AppError::BadRequest(
+                "no available ports in range".to_string(),
+            ));
         }
 
         state.next_opencode_port = port + 1;
@@ -216,11 +227,7 @@ impl StateManager {
             .collect()
     }
 
-    pub async fn remove_tunnel(
-        &self,
-        workspace_id: &str,
-        local_port: u16,
-    ) -> Result<(), AppError> {
+    pub async fn remove_tunnel(&self, workspace_id: &str, local_port: u16) -> Result<(), AppError> {
         let mut state = self.state.write().await;
         let before = state.tunnels.len();
         state

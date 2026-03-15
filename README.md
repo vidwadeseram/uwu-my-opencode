@@ -211,6 +211,21 @@ It clones/pulls to `~/.cache/uwu-dotfiles` and does not overwrite existing confi
 - ttyd unreachable behind proxy: verify websocket headers (`Upgrade`, `Connection`) in nginx config
 - Firewall blocks: allow SSH/HTTP/HTTPS (`sudo ufw allow OpenSSH && sudo ufw allow 'Nginx Full'`)
 
+## Pre-commit Checks
+
+Enable repo hooks:
+
+```bash
+./scripts/setup-hooks.sh
+```
+
+Current pre-commit behavior:
+
+- Runs only when staged files include `daemon/`
+- Executes:
+  - `cargo fmt --manifest-path daemon/Cargo.toml --all -- --check`
+  - `cargo check --manifest-path daemon/Cargo.toml`
+
 ## License
 
 [MIT](LICENSE)

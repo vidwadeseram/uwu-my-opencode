@@ -170,7 +170,11 @@ impl WorkspaceManager {
             );
         }
 
-        let tmux_src = cache_root.join("tmux").join(".config").join("tmux").join("tmux.conf");
+        let tmux_src = cache_root
+            .join("tmux")
+            .join(".config")
+            .join("tmux")
+            .join("tmux.conf");
         let nvim_src = cache_root.join("nvim").join(".config").join("nvim");
 
         if tmux_missing && tmux_src.exists() {
@@ -210,10 +214,7 @@ impl WorkspaceManager {
     }
 
     fn shell_quote(value: &str) -> String {
-        format!(
-            "\"{}\"",
-            value.replace('\\', "\\\\").replace('"', "\\\"")
-        )
+        format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
     }
 
     async fn setup_workspace_opencode_files(&self, dir: &Path) -> Result<(), AppError> {
@@ -307,8 +308,15 @@ impl WorkspaceManager {
         );
 
         commands.push(
-            self.run_cmd(&[&tmux, "set-option", "-t", session, "aggressive-resize", "on"])
-                .await?,
+            self.run_cmd(&[
+                &tmux,
+                "set-option",
+                "-t",
+                session,
+                "aggressive-resize",
+                "on",
+            ])
+            .await?,
         );
 
         commands.push(
@@ -454,9 +462,7 @@ impl WorkspaceManager {
         let path_str = workspace_path.to_string_lossy().to_string();
         let mut commands = Vec::new();
 
-        let has_session = self
-            .run_cmd(&[&tmux, "has-session", "-t", &session])
-            .await;
+        let has_session = self.run_cmd(&[&tmux, "has-session", "-t", &session]).await;
         let already_exists = has_session
             .as_ref()
             .ok()
@@ -514,9 +520,7 @@ impl WorkspaceManager {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
-                .map_err(|e| {
-                    AppError::CommandFailed(format!("failed to spawn ttyd: {}", e))
-                })?;
+                .map_err(|e| AppError::CommandFailed(format!("failed to spawn ttyd: {}", e)))?;
 
             let key = Self::ttyd_key(workspace_name);
             self.supervisor.track(key, child).await;
