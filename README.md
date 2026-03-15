@@ -1,107 +1,215 @@
 # uwu-my-opencode
 
-A self-hosted, browser-accessible AI coding workspace. Run multiple [opencode](https://github.com/sst/opencode) + [oh-my-opencode](https://github.com/code-yeongyu/oh-my-openagent) sessions from anywhere, get instant preview URLs for testing, authenticate with GitHub.
+Self-hosted browser access to a persistent tmux workspace running forked `opencode` + `oh-my-opencode`.
 
-## What It Does
+## Current Behavior
 
-- **AI coding in the browser** — tmux sessions with opencode + oh-my-opencode, accessible from any device
-- **Multiple concurrent projects** — each project gets its own tmux window with a persistent AI coding session
-- **Instant preview URLs** — ask the AI to serve your app, get a shareable URL via Cloudflare Tunnel
-- **GitHub auth** — sign in once, locked to your account
-- **Session persistence** — close your browser, come back later, everything is exactly where you left it
-- **Manual editing** — open vim/emacs in a split pane alongside the AI
+- Daemon starts one tmux session: `uwu-main`
+- Every directory inside `--workspace-root` becomes a tmux tab
+- Each tab auto-launches forked OpenCode from `opencode/packages/opencode/src/index.ts`
+- Per-workspace `.opencode` files are generated automatically:
+  - plugin loader for forked `oh-my-opencode`
+  - `/host-project` command for project hosting workflow
+- ttyd serves the tmux session at `http://127.0.0.1:7681` by default
+- ttyd auth is enabled: `admin` / `admin`
+- Forked tmux protected pane mode prevents accidental pane kill for OpenCode panes
 
-## Architecture
+## Repository Layout
 
-```
-Browser/SSH ──► uwu-daemon (Rust) ──► tmux ──► opencode + oh-my-opencode
-                     │
-                     └──► cloudflared ──► preview URL
-```
+- `daemon/` — Rust supervisor and bootstrap logic
+- `tmux/` — forked tmux (tracked as submodule)
+- `opencode/` — forked opencode (tracked as submodule)
+- `oh-my-opencode/` — forked plugin (tracked as submodule)
 
-A single Rust binary (`uwu-daemon`) supervises everything. It doesn't reimplement terminal muxing or AI coding — it orchestrates mature tools:
+## Local Run
 
-| Component | Role |
-|---|---|
-| **uwu-daemon** | Auth, provisioning, process supervision, tunnel management |
-| **tmux** | Terminal multiplexer — the user-facing shell |
-| **opencode** | AI coding tool (headless server + TUI) |
-| **oh-my-opencode** | 11 specialized AI agents, skills, hooks |
-| **ttyd** | Serves tmux to the browser (MVP) |
-| **cloudflared** | Preview tunnels with free custom subdomains |
-
-## Tech Stack
-
-- **Rust** — daemon, async with Tokio, axum for HTTP/WebSocket
-- **tmux** — session UX, multi-attach, pane management
-- **Bun** — opencode runtime
-- **SQLite** — state persistence
-- **Cloudflare Tunnel** — free preview URLs, no bandwidth caps
-- **GitHub App** — device flow auth with short-lived tokens
-
-## Project Status
-
-**Pre-alpha** — architecture and planning phase. See:
-
-- [`AGENT.md`](AGENT.md) — architecture, component deep-dives, codebase conventions
-- [`SKILLS.md`](SKILLS.md) — tech stack decisions, crate choices, capability map
-- [`PLAN.md`](PLAN.md) — phased implementation roadmap with deliverables
-
-## MVP You Can Test Now
-
-The repository now includes a runnable Rust daemon with these endpoints:
-
-- `GET /health`
-- `GET /workspaces`
-- `POST /workspaces`
-- `POST /workspaces/{id}/start`
-- `POST /workspaces/{id}/preview`
-
-### Quickstart
+From repo root:
 
 ```bash
-cargo run -- --port 18080 --workspace-root ./tmp-workspaces --state-file ./.tmp-state.json
+cd daemon
+
+UWU_EXECUTE_COMMANDS=true cargo run -- \
+  --port 18080 \
+  --workspace-root ./tmp-workspaces \
+  --state-file ./.tmp-state.json \
+  --tmux-bin "$(pwd)/../build/tmux/bin/tmux" \
+  --opencode-repo ../opencode \
+  --oh-my-opencode-repo ../oh-my-opencode
 ```
 
-Then in another terminal:
+Open:
+
+- `http://127.0.0.1:7681`
+- username: `admin`
+- password: `admin`
+
+Health endpoint:
 
 ```bash
 curl http://127.0.0.1:18080/health
-
-curl -X POST http://127.0.0.1:18080/workspaces \
-  -H "content-type: application/json" \
-  -d '{"name":"demo-project"}'
 ```
 
-By default, the daemon runs in **dry-run mode** (`UWU_EXECUTE_COMMANDS=false`) so it returns the tmux/opencode/cloudflared commands without executing them.
+## Deployment (Namecheap Domain + VPS)
 
-To execute real commands:
+This guide deploys on Ubuntu with Nginx + Let's Encrypt and keeps daemon/ttyd on localhost.
+
+### 1) Server Prerequisites
 
 ```bash
-UWU_EXECUTE_COMMANDS=true cargo run -- --port 18080
+sudo apt update
+sudo apt install -y git curl build-essential nginx certbot python3-certbot-nginx tmux
+
+# ttyd (Ubuntu package may be old, use package or binary as preferred)
+sudo apt install -y ttyd || true
+
+# bun
+curl -fsSL https://bun.sh/install | bash
+echo 'export PATH="$HOME/.bun/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# rust
+curl https://sh.rustup.rs -sSf | sh -s -- -y
+source "$HOME/.cargo/env"
 ```
 
-## How It Will Work
+### 2) Clone and Build
 
+```bash
+git clone https://github.com/vidwadeseram/uwu-my-opencode.git
+cd uwu-my-opencode
+
+git submodule update --init --recursive
+
+# build forked tmux
+cd tmux
+sh autogen.sh
+./configure --prefix="$(pwd)/../build/tmux"
+make -j"$(nproc)"
+make install
+cd ..
+
+# install deps for forks
+bun install --cwd opencode
+bun install --cwd oh-my-opencode
+
+# build daemon
+cd daemon
+cargo build --release
+cd ..
 ```
-1. Visit https://yourdomain.com
-2. Authenticate with GitHub (device flow)
-3. Land in a browser terminal (tmux session)
-4. Create a workspace: clone a repo or start fresh
-5. opencode is already running — start coding with AI
-6. Need to test? "Serve this on port 3000"
-7. Get a preview URL instantly: https://xxx.trycloudflare.com
-8. Open a split pane for manual editing anytime
-9. Close your browser — session persists
-10. Come back from any device — reattach instantly
+
+### 3) Namecheap DNS
+
+In Namecheap `Domain List -> Manage -> Advanced DNS`:
+
+- Add `A` record for root:
+  - Host: `@`
+  - Value: `<YOUR_VPS_PUBLIC_IP>`
+- Add `A` record for subdomain (recommended):
+  - Host: `code`
+  - Value: `<YOUR_VPS_PUBLIC_IP>`
+
+Use either root domain (`example.com`) or subdomain (`code.example.com`) in steps below.
+
+### 4) systemd Service
+
+Create `/etc/systemd/system/uwu-daemon@.service`:
+
+```ini
+[Unit]
+Description=uwu daemon
+After=network.target
+
+[Service]
+User=%i
+WorkingDirectory=/home/%i/uwu-my-opencode/daemon
+Environment=UWU_EXECUTE_COMMANDS=true
+ExecStart=/home/%i/uwu-my-opencode/daemon/target/release/uwu-daemon \
+  --host 127.0.0.1 \
+  --port 18080 \
+  --workspace-root /home/%i/workspaces \
+  --state-file /home/%i/.config/uwu/state.json \
+  --ttyd-port-start 7681 \
+  --tmux-bin /home/%i/uwu-my-opencode/build/tmux/bin/tmux \
+  --opencode-repo /home/%i/uwu-my-opencode/opencode \
+  --oh-my-opencode-repo /home/%i/uwu-my-opencode/oh-my-opencode
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
 ```
 
-## Requirements
+Enable it:
 
-- Linux VPS (2+ vCPU, 4+ GB RAM)
-- Domain on Cloudflare DNS (for preview subdomains)
-- GitHub App (for authentication)
-- tmux, Bun, ttyd, cloudflared installed on the server
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now uwu-daemon@$(whoami)
+sudo systemctl status uwu-daemon@$(whoami)
+```
+
+### 5) Nginx Reverse Proxy
+
+Create `/etc/nginx/sites-available/uwu-my-opencode`:
+
+```nginx
+server {
+    listen 80;
+    server_name code.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:7681;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400;
+    }
+}
+```
+
+Enable config:
+
+```bash
+sudo ln -sf /etc/nginx/sites-available/uwu-my-opencode /etc/nginx/sites-enabled/uwu-my-opencode
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl restart nginx
+```
+
+### 6) TLS Certificate
+
+```bash
+sudo certbot --nginx -d code.example.com
+```
+
+Choose redirect to HTTPS when prompted.
+
+### 7) Verify
+
+```bash
+curl http://127.0.0.1:18080/health
+curl -I https://code.example.com
+```
+
+Then open `https://code.example.com` and log in with `admin` / `admin`.
+
+## Linux Auto-Bootstrap Behavior
+
+On Linux only, daemon checks user config and installs missing files from `vidwadeseram/dotfiles`:
+
+- `~/.tmux.conf` (if missing)
+- `~/.config/nvim` (if missing)
+
+It clones/pulls to `~/.cache/uwu-dotfiles` and does not overwrite existing configs.
+
+## Troubleshooting
+
+- DNS not resolving: wait for propagation, verify with `dig code.example.com`
+- Certbot challenge failed: ensure port 80 is open and DNS points to this VPS
+- Nginx welcome page still shows: remove default site and restart nginx
+- ttyd unreachable behind proxy: verify websocket headers (`Upgrade`, `Connection`) in nginx config
+- Firewall blocks: allow SSH/HTTP/HTTPS (`sudo ufw allow OpenSSH && sudo ufw allow 'Nginx Full'`)
 
 ## License
 

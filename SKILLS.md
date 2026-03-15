@@ -2,6 +2,14 @@
 
 > Technical skills, technology decisions, and capability map for the project.
 
+## Current Runtime Notes (2026-03)
+
+- runtime entrypoint is `daemon/` (not root `src/` layout in older planning notes)
+- tmux/opencode/oh-my-opencode are tracked as submodules in this repo
+- daemon launches OpenCode from local fork source (`opencode/packages/opencode/src/index.ts`)
+- Linux startup can bootstrap missing tmux/nvim configs from `vidwadeseram/dotfiles`
+- production deployment docs (Namecheap + Nginx + certbot) live in `README.md`
+
 ---
 
 ## Core Technology Stack

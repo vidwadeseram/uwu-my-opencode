@@ -2,6 +2,24 @@
 
 > Implementation roadmap from MVP to production.
 
+## Current Snapshot (2026-03)
+
+Implemented today in `daemon/`:
+
+- startup bootstrap creates tmux session `uwu-main`
+- one tmux tab per directory under `--workspace-root`
+- each tab launches forked OpenCode with forked oh-my-opencode plugin loader
+- ttyd serves tmux with basic auth (`admin`/`admin`) on `--ttyd-port-start`
+- Linux-only bootstrap seeds missing `~/.tmux.conf` and `~/.config/nvim` from `vidwadeseram/dotfiles`
+
+Not yet implemented from this roadmap:
+
+- GitHub OAuth/device flow in daemon
+- multi-user ownership enforcement
+- API-first workspace lifecycle as primary UX (current UX is startup-tab bootstrap)
+
+Use this plan as the long-term target; README reflects the currently runnable deployment path.
+
 ---
 
 ## Vision

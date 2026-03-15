@@ -6,6 +6,18 @@
 
 **uwu-my-opencode** is a remote AI-powered development environment. It wraps [opencode](https://github.com/sst/opencode) + [oh-my-opencode](https://github.com/code-yeongyu/oh-my-openagent) inside tmux sessions, serves them over the internet via a browser terminal, and provides tunnel-based preview URLs for testing — all behind GitHub authentication.
 
+## Implementation Snapshot (Current)
+
+Current daemon behavior differs from some planned sections below:
+
+- startup-centered workflow (no active `/workspaces` UX path)
+- single tmux session (`uwu-main`) with one tab per workspace directory
+- ttyd browser entry with static credentials (`admin`/`admin`)
+- forked OpenCode and forked oh-my-opencode loaded from local submodules
+- Linux auto-bootstrap for missing tmux/nvim configs from `vidwadeseram/dotfiles`
+
+Treat README as the source of truth for deploy/run commands. This file still contains roadmap architecture notes that are partially future-state.
+
 **One-liner**: A self-hosted, browser-accessible AI coding workspace with live preview tunnels.
 
 ### The Problem It Solves
