@@ -372,7 +372,7 @@ pub fn run_install(
     run_sudo("enabling service", &["systemctl", "enable", "uwu-daemon"]);
 
     let nginx_conf = format!(
-        "server {{\n    listen 80;\n    server_name {};\n\n    location / {{\n        proxy_pass http://127.0.0.1:7681;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection \"upgrade\";\n        proxy_read_timeout 86400;\n    }}\n}}\n",
+        "server {{\n    listen 80;\n    server_name {};\n\n    location /terminal/ {{\n        proxy_pass http://127.0.0.1:7681/;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection \"upgrade\";\n        proxy_read_timeout 86400;\n    }}\n\n    location / {{\n        proxy_pass http://127.0.0.1:18080;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n    }}\n}}\n",
         domain
     );
     write_file_sudo("/etc/nginx/sites-available/uwu-my-opencode", &nginx_conf);

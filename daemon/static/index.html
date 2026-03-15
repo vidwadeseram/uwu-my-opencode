@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>uwu workspace dashboard</title>
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --card: #1a1a1a;
+      --card-alt: #111111;
+      --accent: #00ced1;
+      --text: #f2f2f2;
+      --muted: #9da3a8;
+      --danger: #ff5f5f;
+      --ok: #42d68b;
+      --border: #2a2a2a;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at top right, #0f1f20 0%, var(--bg) 38%);
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1rem;
+    }
+
+    nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      background: rgba(26, 26, 26, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 0.85rem 1rem;
+      margin-bottom: 1rem;
+      backdrop-filter: blur(6px);
+    }
+
+    .brand {
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: lowercase;
+    }
+
+    .brand span {
+      color: var(--accent);
+    }
+
+    .actions {
+      display: flex;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+
+    .grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1rem;
+    }
+
+    .card h2 {
+      margin: 0 0 0.8rem;
+      font-size: 1rem;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .vm {
+      grid-column: span 12;
+    }
+
+    .workspaces {
+      grid-column: span 5;
+    }
+
+    .projects {
+      grid-column: span 7;
+    }
+
+    .password {
+      grid-column: span 12;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 0.6rem;
+    }
+
+    .metric {
+      background: var(--card-alt);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.7rem;
+    }
+
+    .label {
+      color: var(--muted);
+      font-size: 0.82rem;
+      margin-bottom: 0.2rem;
+    }
+
+    .value {
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    .list {
+      display: grid;
+      gap: 0.6rem;
+    }
+
+    .item {
+      border: 1px solid var(--border);
+      background: var(--card-alt);
+      border-radius: 10px;
+      padding: 0.7rem;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .status {
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 0.74rem;
+      padding: 0.2rem 0.45rem;
+      border-radius: 999px;
+      border: 1px solid transparent;
+    }
+
+    .status.running {
+      color: var(--ok);
+      border-color: rgba(66, 214, 139, 0.5);
+    }
+
+    .status.stopped,
+    .status.created,
+    .status.starting {
+      color: #f5d97b;
+      border-color: rgba(245, 217, 123, 0.5);
+    }
+
+    button,
+    .button {
+      background: #143437;
+      color: var(--text);
+      border: 1px solid rgba(0, 206, 209, 0.4);
+      border-radius: 9px;
+      padding: 0.45rem 0.7rem;
+      text-decoration: none;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: 120ms ease;
+    }
+
+    button:hover,
+    .button:hover {
+      transform: translateY(-1px);
+      border-color: rgba(0, 206, 209, 0.8);
+    }
+
+    button.danger {
+      border-color: rgba(255, 95, 95, 0.5);
+      background: #351717;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: wait;
+      transform: none;
+    }
+
+    input {
+      width: 100%;
+      background: #101010;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 9px;
+      padding: 0.6rem;
+      margin-top: 0.35rem;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.8rem;
+      align-items: end;
+    }
+
+    .note,
+    .error,
+    .success {
+      margin-top: 0.6rem;
+      font-size: 0.9rem;
+    }
+
+    .error {
+      color: var(--danger);
+    }
+
+    .success {
+      color: var(--ok);
+    }
+
+    footer {
+      color: var(--muted);
+      font-size: 0.82rem;
+      margin: 1rem 0 0.3rem;
+      text-align: right;
+    }
+
+    @media (max-width: 940px) {
+      .workspaces,
+      .projects,
+      .vm,
+      .password {
+        grid-column: span 12;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <div class="brand">uwu <span>workspace</span></div>
+      <div class="actions">
+        <a class="button" href="/terminal/" target="_blank" rel="noreferrer">Connect to Terminal</a>
+      </div>
+    </nav>
+
+    <div id="topError" class="error"></div>
+
+    <div class="grid">
+      <section class="card vm">
+        <h2>VM Details</h2>
+        <div id="vmMetrics" class="metrics"></div>
+      </section>
+
+      <section class="card workspaces">
+        <h2>Workspaces</h2>
+        <div id="workspacesList" class="list"></div>
+      </section>
+
+      <section class="card projects">
+        <h2>Running Projects</h2>
+        <div id="projectsList" class="list"></div>
+      </section>
+
+      <section class="card password">
+        <h2>Password Reset</h2>
+        <form id="passwordForm">
+          <div class="form-grid">
+            <label>
+              Username
+              <input id="resetUser" name="user" required>
+            </label>
+            <label>
+              New Password
+              <input id="resetPassword" name="new_password" type="password" required>
+            </label>
+            <button id="resetSubmit" type="submit">Reset Password</button>
+          </div>
+        </form>
+        <div id="passwordMessage" class="note"></div>
+      </section>
+    </div>
+
+    <footer id="versionText">version: loading</footer>
+  </div>
+
+  <script>
+    const state = {
+      vm: null,
+      workspaces: [],
+      projects: [],
+      version: "unknown",
+    };
+
+    const vmMetrics = document.getElementById("vmMetrics");
+    const workspacesList = document.getElementById("workspacesList");
+    const projectsList = document.getElementById("projectsList");
+    const topError = document.getElementById("topError");
+    const passwordForm = document.getElementById("passwordForm");
+    const passwordMessage = document.getElementById("passwordMessage");
+    const versionText = document.getElementById("versionText");
+
+    function formatNumber(value, suffix) {
+      if (value === null || value === undefined || Number.isNaN(value)) {
+        return "-";
+      }
+      return `${value}${suffix}`;
+    }
+
+    function formatUptime(seconds) {
+      if (!Number.isFinite(seconds)) {
+        return "-";
+      }
+      const days = Math.floor(seconds / 86400);
+      const hours = Math.floor((seconds % 86400) / 3600);
+      const mins = Math.floor((seconds % 3600) / 60);
+      return `${days}d ${hours}h ${mins}m`;
+    }
+
+    function metric(label, value) {
+      return `<div class="metric"><div class="label">${label}</div><div class="value">${value}</div></div>`;
+    }
+
+    function setGlobalError(message) {
+      topError.textContent = message || "";
+    }
+
+    async function fetchJson(url, options) {
+      const res = await fetch(url, options);
+      if (!res.ok) {
+        let detail = "";
+        try {
+          const data = await res.json();
+          detail = data.error || JSON.stringify(data);
+        } catch (_) {
+          detail = await res.text();
+        }
+        throw new Error(`${res.status} ${res.statusText}${detail ? `: ${detail}` : ""}`);
+      }
+      return res.json();
+    }
+
+    function render() {
+      const vm = state.vm;
+      vmMetrics.innerHTML = vm
+        ? [
+            metric("Hostname", vm.hostname || "-"),
+            metric("Public IP", vm.public_ip || "-"),
+            metric("OS", vm.os || "-"),
+            metric("CPU Cores", formatNumber(vm.cpu_cores, "")),
+            metric("Memory", `${formatNumber(vm.memory_used_mb, "")} / ${formatNumber(vm.memory_total_mb, "")} MB`),
+            metric("Disk", `${formatNumber(vm.disk_used_gb, "")} / ${formatNumber(vm.disk_total_gb, "")} GB`),
+            metric("Uptime", formatUptime(vm.uptime_seconds)),
+          ].join("")
+        : "<div class='label'>Loading VM details...</div>";
+
+      if (!state.workspaces.length) {
+        workspacesList.innerHTML = "<div class='label'>No workspaces available.</div>";
+      } else {
+        workspacesList.innerHTML = state.workspaces
+          .map((ws) => `
+            <div class="item">
+              <div class="row"><strong>${ws.name}</strong><span class="status ${ws.status}">${ws.status}</span></div>
+              <div class="label">${ws.path}</div>
+              <div class="label">Size: ${ws.size_mb !== null && ws.size_mb !== undefined ? `${ws.size_mb} MB` : "unknown"}</div>
+            </div>`)
+          .join("");
+      }
+
+      if (!state.projects.length) {
+        projectsList.innerHTML = "<div class='label'>No projects found.</div>";
+      } else {
+        projectsList.innerHTML = state.projects
+          .map((p) => `
+            <div class="item" data-id="${p.id}">
+              <div class="row">
+                <strong>${p.name}</strong>
+                <span class="status ${p.status}">${p.status}</span>
+              </div>
+              <div class="label">${p.path}</div>
+              <div class="label">${p.browser_url ? `URL: <a href="${p.browser_url}" target="_blank" rel="noreferrer">${p.browser_url}</a>` : "URL: not running"}</div>
+              <div class="actions" style="margin-top:0.55rem;">
+                <button data-action="start">Start</button>
+                <button data-action="stop">Stop</button>
+                <button class="danger" data-action="delete">Delete</button>
+                ${p.terminal_url ? `<a class="button" href="${p.terminal_url}" target="_blank" rel="noreferrer">Open Terminal</a>` : ""}
+              </div>
+            </div>`)
+          .join("");
+      }
+
+      versionText.textContent = `version: ${state.version}`;
+    }
+
+    async function loadDashboard() {
+      try {
+        setGlobalError("");
+        const [vm, workspaces, projects, health] = await Promise.all([
+          fetchJson("/api/vm"),
+          fetchJson("/api/workspaces"),
+          fetchJson("/api/projects"),
+          fetchJson("/health"),
+        ]);
+        state.vm = vm;
+        state.workspaces = workspaces;
+        state.projects = projects;
+        state.version = health.version || "unknown";
+      } catch (err) {
+        setGlobalError(`Failed loading dashboard: ${err.message}`);
+      }
+      render();
+    }
+
+    async function projectAction(id, action) {
+      const selector = `.item[data-id="${id}"] button[data-action="${action}"]`;
+      const button = projectsList.querySelector(selector);
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Working...";
+      }
+
+      try {
+        if (action === "delete") {
+          await fetchJson(`/api/projects/${id}`, { method: "DELETE" });
+        } else {
+          await fetchJson(`/api/projects/${id}/${action}`, { method: "POST" });
+        }
+        await loadDashboard();
+      } catch (err) {
+        setGlobalError(`Project action failed: ${err.message}`);
+      } finally {
+        if (button) {
+          button.disabled = false;
+          button.textContent = action.charAt(0).toUpperCase() + action.slice(1);
+        }
+      }
+    }
+
+    projectsList.addEventListener("click", (event) => {
+      const btn = event.target.closest("button[data-action]");
+      if (!btn) {
+        return;
+      }
+      const card = event.target.closest(".item[data-id]");
+      if (!card) {
+        return;
+      }
+      const id = card.getAttribute("data-id");
+      const action = btn.getAttribute("data-action");
+      if (id && action) {
+        projectAction(id, action);
+      }
+    });
+
+    passwordForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const submit = document.getElementById("resetSubmit");
+      const user = document.getElementById("resetUser").value.trim();
+      const newPassword = document.getElementById("resetPassword").value;
+
+      passwordMessage.className = "note";
+      passwordMessage.textContent = "";
+
+      submit.disabled = true;
+      submit.textContent = "Resetting...";
+      try {
+        const payload = { user, new_password: newPassword };
+        const result = await fetchJson("/api/reset-password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        passwordMessage.className = "success";
+        passwordMessage.textContent = result.message || "Password updated.";
+        passwordForm.reset();
+      } catch (err) {
+        passwordMessage.className = "error";
+        passwordMessage.textContent = `Password reset failed: ${err.message}`;
+      } finally {
+        submit.disabled = false;
+        submit.textContent = "Reset Password";
+      }
+    });
+
+    loadDashboard();
+    setInterval(loadDashboard, 10000);
+  </script>
+</body>
+</html>

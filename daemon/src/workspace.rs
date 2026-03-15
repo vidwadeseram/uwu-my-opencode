@@ -381,29 +381,36 @@ Required flow (do exactly):
 - Use port 3000 first, if busy use 3001.
 - Start server on 0.0.0.0 when possible so it can be reached externally.
 
-4) Install deps + start command by stack
+4) Start dev server in a named tmux window
+- Always create a dedicated tmux window before launching the server:
+  tmux new-window -t uwu-main -n "host-preview"
+- Run dependency install + server command inside that "host-preview" window so both user and AI can see logs.
+- After hosting, report how to attach:
+  tmux select-window -t uwu-main:host-preview
+
+5) Install deps + start command by stack
 - Node/JS/TS (package.json): detect package manager from lockfile, install, then run script in order dev -> start -> preview.
 - Python (pyproject.toml/requirements.txt): install deps (pip/poetry/uv) and run framework dev server on chosen port.
 - Go (go.mod): go run/build and serve on chosen port if app supports PORT.
 - Rust (Cargo.toml): cargo run with chosen port env if supported.
 - Static site (index.html only): python3 -m http.server <PORT> --bind 0.0.0.0.
 
-5) Error recovery
+6) Error recovery
 - If output contains dependency errors such as 'Cannot find module', 'Module not found', 'ERR_MODULE_NOT_FOUND', missing package/import, or command not found:
   a) stop process
   b) run dependency install/fix for that stack
   c) retry once
 
-6) Verify local service
+7) Verify local service
 - Wait until curl http://127.0.0.1:<PORT> succeeds (HTTP 200-399) or timeout.
 
-7) Make it reachable from my PC
+8) Make it reachable from my PC
 - If cloudflared exists, run a quick tunnel to http://127.0.0.1:<PORT> and print the public https://*.trycloudflare.com URL.
 - If cloudflared is unavailable, use another available tunnel/proxy approach and print the reachable URL.
 - As a fallback, print the server public IP/domain with port and clear firewall/security-group steps.
 
-8) Return concise result
-- Always return: stack detected, PROJECT_DIR, local URL, public URL, command used to run app, and current status.
+9) Return concise result
+- Always return: stack detected, PROJECT_DIR, local URL, public URL, command used to run app, tmux window name (host-preview), and current status.
 - If unresolved, return exact failing command + last 40 lines of stderr and the next fix you will attempt.
 "#;
         tokio::fs::write(host_project_file, host_project_content).await?;
@@ -501,6 +508,18 @@ Required flow (do exactly):
                 "send-keys",
                 "-t",
                 &format!("{}:0.0", session),
+                "gh auth status >/dev/null 2>&1 || echo \"⚠️  GitHub CLI not authenticated. Run: gh auth login\"",
+                "Enter",
+            ])
+            .await?,
+        );
+
+        commands.push(
+            self.run_cmd(&[
+                &tmux,
+                "send-keys",
+                "-t",
+                &format!("{}:0.0", session),
                 &first_opencode_cmd,
                 "Enter",
             ])
@@ -547,6 +566,18 @@ Required flow (do exactly):
                     "send-keys",
                     "-t",
                     &target_pane,
+                    "gh auth status >/dev/null 2>&1 || echo \"⚠️  GitHub CLI not authenticated. Run: gh auth login\"",
+                    "Enter",
+                ])
+                .await?,
+            );
+
+            commands.push(
+                self.run_cmd(&[
+                    &tmux,
+                    "send-keys",
+                    "-t",
+                    &target_pane,
                     &opencode_cmd,
                     "Enter",
                 ])
@@ -563,7 +594,7 @@ Required flow (do exactly):
         let ttyd_port_str = ttyd_port.to_string();
         let credential = format!("{}:{}", self.config.ttyd_user, self.config.ttyd_pass);
         let ttyd_cmd_str = format!(
-            "ttyd --port {} -W -t fontSize=13 -t lineHeight=1 --credential {} {} attach -t {}",
+            "ttyd --port {} -W -t fontSize=13 -t lineHeight=1 -t titleFixed=uwu workspace --credential {} {} attach -t {}",
             ttyd_port, credential, tmux, session
         );
 
@@ -577,6 +608,8 @@ Required flow (do exactly):
                     "fontSize=13",
                     "-t",
                     "lineHeight=1",
+                    "-t",
+                    "titleFixed=uwu workspace",
                     "--credential",
                     &credential,
                     &tmux,
