@@ -4,10 +4,16 @@
 
 ## Current Runtime Notes (2026-03)
 
+- `uwu-daemon install` subcommand provisions a full server (deps, build, systemd, nginx, certbot)
+- thin bootstrap: `bash <(curl ... install.sh)` installs Rust then delegates to `uwu-daemon install`
 - runtime entrypoint is `daemon/` (not root `src/` layout in older planning notes)
 - tmux/opencode/oh-my-opencode are tracked as submodules in this repo
+- forked tmux adds `protected-pane` option (prevents kill, auto-respawn)
 - daemon launches OpenCode from local fork source (`opencode/packages/opencode/src/index.ts`)
-- Linux startup can bootstrap missing tmux/nvim configs from `vidwadeseram/dotfiles`
+- Linux startup bootstraps missing configs:
+  - tmux/nvim from `vidwadeseram/dotfiles`
+  - Oh My Zsh with zsh-autosuggestions, zsh-syntax-highlighting, zsh-completions
+- pre-commit hook enforces `cargo fmt` + `cargo check` on daemon changes
 - production deployment docs (Namecheap + Nginx + certbot) live in `README.md`
 
 ---

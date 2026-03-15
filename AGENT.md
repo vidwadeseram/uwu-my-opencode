@@ -10,11 +10,17 @@
 
 Current daemon behavior differs from some planned sections below:
 
+- `uwu-daemon install --domain <d> --email <e>` provisions a full server from scratch
+- `bash <(curl ... install.sh)` bootstraps Rust then runs the install subcommand
 - startup-centered workflow (no active `/workspaces` UX path)
 - single tmux session (`uwu-main`) with one tab per workspace directory
 - ttyd browser entry with static credentials (`admin`/`admin`)
 - forked OpenCode and forked oh-my-opencode loaded from local submodules
-- Linux auto-bootstrap for missing tmux/nvim configs from `vidwadeseram/dotfiles`
+- forked tmux with `protected-pane` option (prevents kill-pane, auto-respawns on exit)
+- Linux auto-bootstrap for missing configs:
+  - tmux/nvim from `vidwadeseram/dotfiles`
+  - Oh My Zsh with autocomplete plugins
+- pre-commit hook (`cargo fmt --check` + `cargo check`) on daemon changes
 
 Treat README as the source of truth for deploy/run commands. This file still contains roadmap architecture notes that are partially future-state.
 

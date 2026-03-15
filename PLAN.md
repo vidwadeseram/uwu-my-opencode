@@ -6,11 +6,18 @@
 
 Implemented today in `daemon/`:
 
+- `uwu-daemon install` CLI subcommand for single-command server provisioning
+- thin bootstrap script for fresh servers: `bash <(curl ... install.sh)`
 - startup bootstrap creates tmux session `uwu-main`
 - one tmux tab per directory under `--workspace-root`
 - each tab launches forked OpenCode with forked oh-my-opencode plugin loader
 - ttyd serves tmux with basic auth (`admin`/`admin`) on `--ttyd-port-start`
-- Linux-only bootstrap seeds missing `~/.tmux.conf` and `~/.config/nvim` from `vidwadeseram/dotfiles`
+- forked tmux with `protected-pane` feature (panes cannot be killed, auto-respawn on exit)
+- Linux-only bootstrap seeds missing configs:
+  - `~/.tmux.conf` and `~/.config/nvim` from `vidwadeseram/dotfiles`
+  - Oh My Zsh with zsh-autosuggestions, zsh-syntax-highlighting, zsh-completions
+- `install` subcommand handles: system packages, bun, repo clone, submodule init, forked tmux build, JS deps, daemon release build, systemd, nginx, firewall, certbot
+- pre-commit hook enforces `cargo fmt` and `cargo check` on daemon changes
 
 Not yet implemented from this roadmap:
 
