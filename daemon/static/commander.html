@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Commander</title>
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --panel: #101313;
+      --card: #1a1a1a;
+      --card-soft: #161616;
+      --accent: #00ced1;
+      --accent-soft: rgba(0, 206, 209, 0.18);
+      --text: #f3f8f8;
+      --muted: #98a5a6;
+      --border: #2a2f2f;
+      --ok: #47d89e;
+      --warn: #f5d97b;
+      --shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      background: radial-gradient(circle at 8% 2%, #123638 0%, var(--bg) 35%);
+      color: var(--text);
+      font-family: "Avenir Next", "SF Pro Text", "Segoe UI", sans-serif;
+      overscroll-behavior-y: contain;
+    }
+
+    body {
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .shell {
+      width: 100%;
+      max-width: 700px;
+      margin: 0 auto;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      background: linear-gradient(180deg, rgba(16, 19, 19, 0.96), rgba(10, 10, 10, 0.98));
+      border-left: 1px solid rgba(255, 255, 255, 0.04);
+      border-right: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .chat-header {
+      position: sticky;
+      top: 0;
+      z-index: 15;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.7rem 0.75rem;
+      background: rgba(11, 14, 14, 0.94);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(8px);
+    }
+
+    .nav-btn,
+    .refresh-btn,
+    .chip,
+    .send-btn,
+    select,
+    textarea,
+    .banner-toggle {
+      min-height: 44px;
+    }
+
+    .nav-btn,
+    .refresh-btn,
+    .banner-toggle {
+      border: 1px solid var(--border);
+      color: var(--text);
+      background: #111616;
+      border-radius: 12px;
+      padding: 0.5rem 0.7rem;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.9rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 140ms ease, border-color 140ms ease;
+      cursor: pointer;
+    }
+
+    .nav-btn:hover,
+    .refresh-btn:hover,
+    .banner-toggle:hover,
+    .chip:hover,
+    .send-btn:hover {
+      transform: translateY(-1px);
+      border-color: rgba(0, 206, 209, 0.6);
+    }
+
+    .header-main {
+      min-width: 0;
+    }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-bottom: 0.35rem;
+    }
+
+    .title {
+      font-size: 1.04rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--ok);
+      box-shadow: 0 0 0 0 rgba(71, 216, 158, 0.6);
+      animation: pulse 1.8s infinite;
+    }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(71, 216, 158, 0.6); }
+      70% { box-shadow: 0 0 0 8px rgba(71, 216, 158, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(71, 216, 158, 0); }
+    }
+
+    select {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #0f1414;
+      color: var(--text);
+      padding: 0 0.75rem;
+      font-size: 0.92rem;
+    }
+
+    .session-banner {
+      border-bottom: 1px solid var(--border);
+      background: rgba(20, 24, 24, 0.84);
+      padding: 0.55rem 0.75rem;
+    }
+
+    .banner-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .banner-kicker {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+
+    .banner-content {
+      margin-top: 0.45rem;
+      display: grid;
+      gap: 0.2rem;
+      font-size: 0.88rem;
+    }
+
+    .banner-content.hidden {
+      display: none;
+    }
+
+    .banner-path {
+      color: var(--muted);
+      overflow-wrap: anywhere;
+      font-size: 0.82rem;
+    }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      scroll-behavior: smooth;
+    }
+
+    .empty {
+      color: var(--muted);
+      font-size: 0.95rem;
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      padding: 0.9rem;
+      text-align: center;
+      margin-top: 1rem;
+    }
+
+    .message {
+      max-width: 85%;
+      margin-bottom: 0.3rem;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 0.7rem 0.8rem;
+      line-height: 1.45;
+      box-shadow: var(--shadow);
+      animation: rise 220ms ease;
+    }
+
+    @keyframes rise {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .message.user {
+      margin-left: auto;
+      background: linear-gradient(145deg, #143437, #123033);
+      border-radius: 16px 16px 4px 16px;
+      border-color: rgba(0, 206, 209, 0.25);
+    }
+
+    .message.assistant,
+    .message.system {
+      margin-right: auto;
+      background: var(--card);
+      border-radius: 16px 16px 16px 4px;
+    }
+
+    .message-meta {
+      color: var(--muted);
+      font-size: 0.72rem;
+      margin-top: 0.35rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .text-part {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      margin-bottom: 0.45rem;
+    }
+
+    .text-part:last-child {
+      margin-bottom: 0;
+    }
+
+    .code-block {
+      margin: 0.45rem 0;
+      background: #090c0c;
+      border: 1px solid #2d3738;
+      border-radius: 10px;
+      padding: 0.55rem;
+      overflow-x: auto;
+      font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      font-size: 0.84rem;
+      line-height: 1.4;
+      color: #ccf8f8;
+    }
+
+    .typing {
+      margin-right: auto;
+      max-width: 70%;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: #161d1d;
+      padding: 0.5rem 0.75rem;
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--accent);
+      opacity: 0.45;
+      animation: blink 1.2s infinite ease;
+    }
+
+    .dot:nth-child(2) { animation-delay: 0.16s; }
+    .dot:nth-child(3) { animation-delay: 0.32s; }
+
+    @keyframes blink {
+      0%, 100% { opacity: 0.25; }
+      50% { opacity: 1; }
+    }
+
+    .chat-input-zone {
+      position: sticky;
+      bottom: 0;
+      z-index: 12;
+      background: linear-gradient(180deg, rgba(11, 13, 13, 0.95), rgba(8, 9, 9, 0.98));
+      border-top: 1px solid var(--border);
+      padding: 0.5rem 0.55rem calc(0.55rem + env(safe-area-inset-bottom));
+    }
+
+    .chips {
+      display: flex;
+      gap: 0.45rem;
+      overflow-x: auto;
+      padding: 0.15rem 0.2rem 0.5rem;
+      scrollbar-width: none;
+    }
+
+    .chips::-webkit-scrollbar {
+      display: none;
+    }
+
+    .chip {
+      border: 1px solid rgba(0, 206, 209, 0.35);
+      background: var(--accent-soft);
+      color: #c9f9f8;
+      border-radius: 999px;
+      padding: 0.45rem 0.75rem;
+      white-space: nowrap;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: transform 140ms ease, border-color 140ms ease;
+    }
+
+    .chat-input-bar {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 0.45rem;
+    }
+
+    textarea {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #111616;
+      color: var(--text);
+      resize: none;
+      padding: 0.6rem 0.75rem;
+      line-height: 1.35;
+      font-size: 0.95rem;
+      max-height: calc(1.35em * 4 + 1.2rem);
+      overflow-y: auto;
+    }
+
+    textarea:focus,
+    select:focus {
+      outline: none;
+      border-color: rgba(0, 206, 209, 0.9);
+      box-shadow: 0 0 0 2px rgba(0, 206, 209, 0.2);
+    }
+
+    .send-btn {
+      border-radius: 12px;
+      border: 1px solid rgba(0, 206, 209, 0.55);
+      min-width: 74px;
+      padding: 0.55rem 0.9rem;
+      background: linear-gradient(140deg, #125457, #0f4042);
+      color: #ddffff;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 140ms ease, border-color 140ms ease;
+    }
+
+    .send-btn:disabled {
+      cursor: wait;
+      opacity: 0.6;
+      transform: none;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (min-width: 760px) {
+      .shell {
+        margin: 1rem auto;
+        min-height: calc(100dvh - 2rem);
+        border-radius: 18px;
+        overflow: hidden;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="chat-header">
+      <a class="nav-btn" href="/" aria-label="Back to dashboard">←</a>
+      <div class="header-main">
+        <div class="title-row">
+          <div class="title">Commander</div>
+          <span class="status-dot" id="statusDot" title="polling"></span>
+        </div>
+        <select id="sessionSelect" aria-label="Select session"></select>
+      </div>
+      <button class="refresh-btn" id="refreshBtn" type="button">Refresh</button>
+    </header>
+
+    <section class="session-banner" id="sessionBanner">
+      <div class="banner-head">
+        <div class="banner-kicker">Session Details</div>
+        <button class="banner-toggle" id="bannerToggle" type="button">Hide</button>
+      </div>
+      <div class="banner-content" id="bannerContent">
+        <div id="bannerName">Workspace: -</div>
+        <div class="banner-path" id="bannerPath">Path: -</div>
+      </div>
+    </section>
+
+    <main class="chat-messages" id="messages" aria-live="polite">
+      <div class="empty" id="emptyState">No messages yet. Send a command to your active tmux pane.</div>
+      <div class="typing hidden" id="typingIndicator">
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span>Commander is thinking...</span>
+      </div>
+    </main>
+
+    <section class="chat-input-zone">
+      <div class="chips" id="quickChips">
+        <button class="chip" type="button" data-message="run tests">run tests</button>
+        <button class="chip" type="button" data-message="git status">git status</button>
+        <button class="chip" type="button" data-message="deploy">deploy</button>
+        <button class="chip" type="button" data-message="show logs">show logs</button>
+      </div>
+      <form class="chat-input-bar" id="chatForm">
+        <textarea id="chatInput" rows="1" placeholder="Send instructions to OpenCode..." required></textarea>
+        <button class="send-btn" id="sendBtn" type="submit">Send</button>
+      </form>
+    </section>
+  </div>
+
+  <script>
+    const state = {
+      sessions: [],
+      activeTarget: "uwu-main:0",
+      lastServerId: 0,
+      messages: [],
+      waitingForAssistant: false,
+      pollTimer: null,
+      tempId: -1,
+      isBannerOpen: true,
+    };
+
+    const sessionSelect = document.getElementById("sessionSelect");
+    const messagesEl = document.getElementById("messages");
+    const emptyStateEl = document.getElementById("emptyState");
+    const typingIndicator = document.getElementById("typingIndicator");
+    const chatForm = document.getElementById("chatForm");
+    const chatInput = document.getElementById("chatInput");
+    const sendBtn = document.getElementById("sendBtn");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const bannerToggle = document.getElementById("bannerToggle");
+    const bannerContent = document.getElementById("bannerContent");
+    const bannerName = document.getElementById("bannerName");
+    const bannerPath = document.getElementById("bannerPath");
+    const quickChips = document.getElementById("quickChips");
+
+    function formatTime(timestamp) {
+      const date = new Date(timestamp);
+      if (Number.isNaN(date.getTime())) {
+        return "now";
+      }
+      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+
+    function escapeHtml(value) {
+      return value
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function renderMessageContent(content) {
+      const normalized = String(content || "");
+      const parts = [];
+      let cursor = 0;
+      let index = 0;
+      while (cursor < normalized.length) {
+        const start = normalized.indexOf("```", cursor);
+        if (start === -1) {
+          const text = normalized.slice(cursor);
+          if (text) {
+            parts.push(`<div class="text-part">${escapeHtml(text)}</div>`);
+          }
+          break;
+        }
+
+        const before = normalized.slice(cursor, start);
+        if (before) {
+          parts.push(`<div class="text-part">${escapeHtml(before)}</div>`);
+        }
+
+        const end = normalized.indexOf("```", start + 3);
+        if (end === -1) {
+          const tail = normalized.slice(start);
+          parts.push(`<div class="text-part">${escapeHtml(tail)}</div>`);
+          break;
+        }
+
+        const rawCode = normalized.slice(start + 3, end).replace(/^\n/, "");
+        parts.push(`<pre class="code-block"><code>${escapeHtml(rawCode)}</code></pre>`);
+        cursor = end + 3;
+        index += 1;
+        if (index > 64) {
+          break;
+        }
+      }
+
+      return parts.join("") || `<div class="text-part"></div>`;
+    }
+
+    function messageBubble(message) {
+      const role = message.role === "user" ? "user" : (message.role || "assistant");
+      return `
+        <article class="message ${role}" data-id="${message.id}">
+          ${renderMessageContent(message.content)}
+          <div class="message-meta">${role} · ${formatTime(message.timestamp)}</div>
+        </article>
+      `;
+    }
+
+    function renderMessages() {
+      const html = state.messages.map(messageBubble).join("");
+      emptyStateEl.classList.toggle("hidden", state.messages.length > 0);
+      const typingHtml = typingIndicator.outerHTML;
+      messagesEl.innerHTML = html + typingHtml;
+      const indicator = document.getElementById("typingIndicator");
+      indicator.classList.toggle("hidden", !state.waitingForAssistant);
+      if (state.waitingForAssistant) {
+        indicator.scrollIntoView({ block: "end" });
+      }
+    }
+
+    function scrollToBottom() {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function setSending(isSending) {
+      sendBtn.disabled = isSending;
+      sendBtn.textContent = isSending ? "..." : "Send";
+    }
+
+    function autoGrowInput() {
+      chatInput.style.height = "auto";
+      chatInput.style.height = `${Math.min(chatInput.scrollHeight, 120)}px`;
+    }
+
+    async function fetchJson(url, options) {
+      const response = await fetch(url, options);
+      if (!response.ok) {
+        let detail = "";
+        try {
+          const payload = await response.json();
+          detail = payload.error || JSON.stringify(payload);
+        } catch (_) {
+          detail = await response.text();
+        }
+        throw new Error(`${response.status} ${response.statusText}${detail ? `: ${detail}` : ""}`);
+      }
+      return response.json();
+    }
+
+    function hydrateBanner() {
+      const selected = state.sessions.find((session) => session.target === state.activeTarget);
+      bannerName.textContent = `Workspace: ${selected ? selected.name : state.activeTarget}`;
+      bannerPath.textContent = `Path: ${selected ? selected.path : "-"}`;
+    }
+
+    function renderSessionOptions() {
+      if (!state.sessions.length) {
+        sessionSelect.innerHTML = `<option value="${state.activeTarget}">${state.activeTarget}</option>`;
+        return;
+      }
+
+      sessionSelect.innerHTML = state.sessions
+        .map((session) => {
+          const label = `${session.index} · ${session.name}`;
+          const selected = session.target === state.activeTarget ? "selected" : "";
+          return `<option value="${session.target}" ${selected}>${label}</option>`;
+        })
+        .join("");
+      hydrateBanner();
+    }
+
+    async function loadSessions() {
+      const sessions = await fetchJson("/api/commander/sessions");
+      state.sessions = Array.isArray(sessions) ? sessions : [];
+      if (!state.sessions.some((session) => session.target === state.activeTarget) && state.sessions.length) {
+        state.activeTarget = state.sessions[0].target;
+      }
+      renderSessionOptions();
+    }
+
+    function appendUniqueMessages(messages) {
+      const known = new Set(state.messages.filter((m) => m.id > 0).map((m) => m.id));
+      let added = 0;
+      for (const message of messages) {
+        if (message.id > 0 && known.has(message.id)) {
+          continue;
+        }
+        state.messages.push(message);
+        if (message.id > 0) {
+          known.add(message.id);
+          state.lastServerId = Math.max(state.lastServerId, message.id);
+        }
+        if (message.role === "assistant") {
+          state.waitingForAssistant = false;
+        }
+        added += 1;
+      }
+      return added;
+    }
+
+    async function loadMessages(since) {
+      const data = await fetchJson(`/api/commander/messages?since=${since}`);
+      if (!Array.isArray(data)) {
+        return 0;
+      }
+      return appendUniqueMessages(data);
+    }
+
+    async function refreshAll() {
+      await loadSessions();
+      state.messages = [];
+      state.lastServerId = 0;
+      state.waitingForAssistant = false;
+      const added = await loadMessages(0);
+      renderMessages();
+      if (added > 0) {
+        scrollToBottom();
+      }
+    }
+
+    async function poll() {
+      try {
+        const added = await loadMessages(state.lastServerId);
+        if (added > 0) {
+          renderMessages();
+          scrollToBottom();
+        } else {
+          const indicator = document.getElementById("typingIndicator");
+          indicator.classList.toggle("hidden", !state.waitingForAssistant);
+        }
+      } catch (_) {
+        document.getElementById("statusDot").style.background = "var(--warn)";
+      }
+    }
+
+    function startPolling() {
+      if (state.pollTimer) {
+        clearInterval(state.pollTimer);
+      }
+      state.pollTimer = setInterval(poll, 1500);
+    }
+
+    async function sendMessage(rawMessage) {
+      const content = String(rawMessage || "").trim();
+      if (!content) {
+        return;
+      }
+
+      const temp = {
+        id: state.tempId,
+        role: "user",
+        content,
+        timestamp: new Date().toISOString(),
+      };
+      state.tempId -= 1;
+      state.messages.push(temp);
+      state.waitingForAssistant = true;
+      renderMessages();
+      scrollToBottom();
+      setSending(true);
+
+      try {
+        const response = await fetchJson("/api/commander/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: content }),
+        });
+
+        const index = state.messages.findIndex((message) => message.id === temp.id);
+        if (index !== -1) {
+          state.messages[index] = response;
+          state.lastServerId = Math.max(state.lastServerId, response.id || 0);
+        }
+
+        chatInput.value = "";
+        autoGrowInput();
+        renderMessages();
+        scrollToBottom();
+      } catch (error) {
+        state.waitingForAssistant = false;
+        const index = state.messages.findIndex((message) => message.id === temp.id);
+        if (index !== -1) {
+          state.messages[index] = {
+            id: state.tempId--,
+            role: "system",
+            content: `Send failed: ${error.message}`,
+            timestamp: new Date().toISOString(),
+          };
+        }
+        renderMessages();
+      } finally {
+        setSending(false);
+      }
+    }
+
+    sessionSelect.addEventListener("change", async (event) => {
+      const target = event.target.value;
+      if (!target || target === state.activeTarget) {
+        return;
+      }
+      await fetchJson("/api/commander/session/switch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target }),
+      });
+      state.activeTarget = target;
+      await refreshAll();
+    });
+
+    chatForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await sendMessage(chatInput.value);
+    });
+
+    chatInput.addEventListener("input", autoGrowInput);
+    chatInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        chatForm.requestSubmit();
+      }
+    });
+
+    quickChips.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-message]");
+      if (!button) {
+        return;
+      }
+      sendMessage(button.getAttribute("data-message"));
+    });
+
+    refreshBtn.addEventListener("click", async () => {
+      await refreshAll();
+      scrollToBottom();
+    });
+
+    bannerToggle.addEventListener("click", () => {
+      state.isBannerOpen = !state.isBannerOpen;
+      bannerContent.classList.toggle("hidden", !state.isBannerOpen);
+      bannerToggle.textContent = state.isBannerOpen ? "Hide" : "Show";
+    });
+
+    let touchStartY = 0;
+    messagesEl.addEventListener("touchstart", (event) => {
+      if (messagesEl.scrollTop === 0) {
+        touchStartY = event.touches[0].clientY;
+      }
+    }, { passive: true });
+
+    messagesEl.addEventListener("touchend", async (event) => {
+      if (messagesEl.scrollTop !== 0) {
+        return;
+      }
+      const delta = event.changedTouches[0].clientY - touchStartY;
+      if (delta > 55) {
+        await poll();
+      }
+    }, { passive: true });
+
+    async function init() {
+      await refreshAll();
+      renderMessages();
+      scrollToBottom();
+      startPolling();
+      document.getElementById("statusDot").style.background = "var(--ok)";
+    }
+
+    init().catch((error) => {
+      state.messages.push({
+        id: state.tempId--,
+        role: "system",
+        content: `Initialization failed: ${error.message}`,
+        timestamp: new Date().toISOString(),
+      });
+      renderMessages();
+    });
+  </script>
+</body>
+</html>
