@@ -145,6 +145,16 @@ impl WorkspaceManager {
         );
 
         commands.push(
+            self.run_cmd(&[&tmux, "set-option", "-t", session, "window-size", "latest"])
+                .await?,
+        );
+
+        commands.push(
+            self.run_cmd(&[&tmux, "set-option", "-t", session, "aggressive-resize", "on"])
+                .await?,
+        );
+
+        commands.push(
             self.run_cmd(&[
                 &tmux,
                 "set-option",
@@ -223,7 +233,7 @@ impl WorkspaceManager {
         let ttyd_port_str = ttyd_port.to_string();
         let credential = "admin:admin";
         let ttyd_cmd_str = format!(
-            "ttyd --port {} -W --credential {} {} attach -t {}",
+            "ttyd --port {} -W -t fontSize=13 -t lineHeight=1 --credential {} {} attach -t {}",
             ttyd_port, credential, tmux, session
         );
 
@@ -233,6 +243,10 @@ impl WorkspaceManager {
                     "--port",
                     &ttyd_port_str,
                     "-W",
+                    "-t",
+                    "fontSize=13",
+                    "-t",
+                    "lineHeight=1",
                     "--credential",
                     credential,
                     &tmux,
