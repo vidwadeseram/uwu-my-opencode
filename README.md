@@ -49,9 +49,36 @@ Health endpoint:
 curl http://127.0.0.1:18080/health
 ```
 
-## Deployment (Namecheap Domain + VPS)
+## One-Command Install
 
-This guide deploys on Ubuntu with Nginx + Let's Encrypt and keeps daemon/ttyd on localhost.
+SSH into a fresh Ubuntu VPS and run:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/vidwadeseram/uwu-my-opencode/main/scripts/install.sh)
+```
+
+It installs Rust, builds `uwu-daemon`, then runs the interactive installer which asks for your domain, email, and credentials. When done it prints your live HTTPS URL.
+
+You can also pass flags to skip prompts:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/vidwadeseram/uwu-my-opencode/main/scripts/install.sh) \
+  --domain code.example.com \
+  --email you@email.com \
+  --ttyd-user admin \
+  --ttyd-pass admin
+```
+
+If you already have Rust/cargo installed, skip the bootstrap script and run the CLI directly:
+
+```bash
+cargo install --git https://github.com/vidwadeseram/uwu-my-opencode --path daemon uwu-daemon
+uwu-daemon install --domain code.example.com --email you@email.com
+```
+
+## Manual Deployment (Namecheap Domain + VPS)
+
+Step-by-step alternative to the one-command installer.
 
 ### 1) Server Prerequisites
 

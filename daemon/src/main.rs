@@ -1,5 +1,6 @@
 mod config;
 mod error;
+mod installer;
 mod server;
 mod state;
 mod supervisor;
@@ -26,6 +27,29 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
+
+    if let Some(config::Command::Install {
+        domain,
+        email,
+        ttyd_user,
+        ttyd_pass,
+        install_dir,
+        workspace_dir,
+        skip_ssl,
+    }) = cli.command
+    {
+        installer::run_install(
+            domain,
+            email,
+            ttyd_user,
+            ttyd_pass,
+            install_dir,
+            workspace_dir,
+            skip_ssl,
+        );
+        return Ok(());
+    }
+
     let config = AppConfig::from_cli(&cli);
 
     info!(

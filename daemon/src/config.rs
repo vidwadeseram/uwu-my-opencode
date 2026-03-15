@@ -42,6 +42,22 @@ pub struct Cli {
 pub enum Command {
     Start,
     Status,
+    Install {
+        #[arg(long)]
+        domain: Option<String>,
+        #[arg(long)]
+        email: Option<String>,
+        #[arg(long, default_value = "admin")]
+        ttyd_user: String,
+        #[arg(long, default_value = "admin")]
+        ttyd_pass: String,
+        #[arg(long)]
+        install_dir: Option<PathBuf>,
+        #[arg(long)]
+        workspace_dir: Option<PathBuf>,
+        #[arg(long)]
+        skip_ssl: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
