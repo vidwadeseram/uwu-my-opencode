@@ -57,7 +57,7 @@ SSH into a fresh Ubuntu VPS and run:
 bash <(curl -fsSL https://raw.githubusercontent.com/vidwadeseram/uwu-my-opencode/main/scripts/install.sh)
 ```
 
-It installs Rust, builds `uwu-daemon`, then runs the interactive installer which asks for your domain, email, and credentials. When done it prints your live HTTPS URL.
+It installs Rust, builds `uwu-daemon`, then runs the interactive installer which asks for your domain, email, and credentials. It also installs JetBrainsMono Nerd Font under `~/.local/share/fonts` so Neovim icon plugins render correctly. When done it prints your live HTTPS URL.
 
 You can also pass flags to skip prompts:
 
@@ -74,6 +74,29 @@ If you already have Rust/cargo installed, skip the bootstrap script and run the 
 ```bash
 cargo install --git https://github.com/vidwadeseram/uwu-my-opencode --path daemon uwu-daemon
 uwu-daemon install --domain code.example.com --email you@email.com
+```
+
+### Auth and Session CLI Commands
+
+After install, you can manage access/session state with CLI subcommands:
+
+```bash
+# check service + local health
+uwu-daemon status
+
+# drop active ttyd sessions (forces browser reconnect/login)
+uwu-daemon logout
+
+# rotate ttyd password (auto-restarts daemon)
+uwu-daemon reset-password --new-password "your-new-password"
+```
+
+You can also override defaults:
+
+```bash
+uwu-daemon status --service uwu-daemon
+uwu-daemon logout --service uwu-daemon
+uwu-daemon reset-password --user admin --install-dir ~/uwu-my-opencode --service uwu-daemon
 ```
 
 ## Manual Deployment (Namecheap Domain + VPS)
