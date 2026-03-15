@@ -148,19 +148,19 @@ pub fn create_router(ctx: AppContext) -> Router {
             "/api/workspaces",
             get(list_workspaces).post(create_workspace),
         )
-        .route("/api/workspaces/:id", delete(delete_workspace))
-        .route("/api/workspaces/:id/start", post(start_workspace))
-        .route("/api/workspaces/:id/stop", post(stop_workspace))
+        .route("/api/workspaces/{id}", delete(delete_workspace))
+        .route("/api/workspaces/{id}/start", post(start_workspace))
+        .route("/api/workspaces/{id}/stop", post(stop_workspace))
         .route(
-            "/api/workspaces/:id/previews",
+            "/api/workspaces/{id}/previews",
             get(list_previews)
                 .post(create_preview)
                 .delete(delete_preview),
         )
         .route("/api/projects", get(list_workspaces))
-        .route("/api/projects/:id/start", post(start_workspace))
-        .route("/api/projects/:id/stop", post(stop_workspace))
-        .route("/api/projects/:id", delete(delete_workspace))
+        .route("/api/projects/{id}/start", post(start_workspace))
+        .route("/api/projects/{id}/stop", post(stop_workspace))
+        .route("/api/projects/{id}", delete(delete_workspace))
         .route("/api/reset-password", post(reset_password))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
