@@ -117,7 +117,6 @@ impl From<&crate::state::Workspace> for WorkspaceResponse {
 #[derive(Serialize)]
 struct VmInfoResponse {
     hostname: String,
-    public_ip: String,
     cpu_cores: u32,
     memory_total_mb: u64,
     memory_used_mb: u64,
@@ -439,8 +438,6 @@ async fn vm_info() -> Result<Json<VmInfoResponse>, AppError> {
         .await
         .unwrap_or_else(|| "unknown".to_string());
 
-    let public_ip = detect_public_ip().await;
-
     let cpu_cores = run_command("nproc", &[])
         .await
         .and_then(|value| value.parse::<u32>().ok())
@@ -476,7 +473,6 @@ async fn vm_info() -> Result<Json<VmInfoResponse>, AppError> {
 
     Ok(Json(VmInfoResponse {
         hostname,
-        public_ip,
         cpu_cores,
         memory_total_mb,
         memory_used_mb,
@@ -584,22 +580,6 @@ async fn run_command(program: &str, args: &[&str]) -> Option<String> {
     }
 
     Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
-async fn detect_public_ip() -> String {
-    if let Some(local_ips) = run_command("hostname", &["-I"]).await {
-        let first = local_ips
-            .split_whitespace()
-            .find(|ip| !ip.starts_with("127."))
-            .unwrap_or("");
-        if !first.is_empty() {
-            return first.to_string();
-        }
-    }
-
-    run_command("curl", &["-fsSL", "ifconfig.me"])
-        .await
-        .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn parse_memory_info(free_output: &str) -> (u64, u64) {

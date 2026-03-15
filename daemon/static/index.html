@@ -475,7 +475,6 @@
       vmMetrics.innerHTML = vm
         ? [
             metric("Hostname", vm.hostname || "-"),
-            metric("Public IP", vm.public_ip || "-"),
             metric("OS", vm.os || "-"),
             metric("CPU Cores", formatNumber(vm.cpu_cores, "")),
             metric("Memory", `${formatNumber(vm.memory_used_mb, "")} / ${formatNumber(vm.memory_total_mb, "")} MB`),
