@@ -341,7 +341,59 @@ impl WorkspaceManager {
         tokio::fs::write(plugin_file, plugin_content).await?;
 
         let host_project_file = commands_dir.join("host-project.md");
-        let host_project_content = "---\ndescription: host current project and provide a URL reachable from my PC\nsubtask: false\n---\n\nHost this project for preview.\n\nContext:\n- opencode is running on a remote Linux server via ttyd.\n- The final preview URL must be reachable from my PC browser, not only from the server itself.\n- Use any available model in this environment (do not depend on one specific model).\n\nRequired flow (do exactly):\n\n1) Find PROJECT_DIR (any stack, not only JS)\n- If current dir has one of: package.json, pyproject.toml, requirements.txt, go.mod, Cargo.toml, Gemfile, composer.json, index.html -> use current dir.\n- Otherwise search child dirs up to depth 3 for those files and pick the nearest match.\n- Print PROJECT_DIR before running anything.\n\n2) Pick port and bind address\n- Use port 3000 first, if busy use 3001.\n- Start server on 0.0.0.0 when possible so it can be reached externally.\n\n3) Install deps + start command by stack\n- Node/JS/TS (package.json): detect package manager from lockfile, install, then run script in order dev -> start -> preview.\n- Python (pyproject.toml/requirements.txt): install deps (pip/poetry/uv) and run framework dev server on chosen port.\n- Go (go.mod): go run/build and serve on chosen port if app supports PORT.\n- Rust (Cargo.toml): cargo run with chosen port env if supported.\n- Static site (index.html only): python3 -m http.server <PORT> --bind 0.0.0.0.\n\n4) Error recovery\n- If output contains dependency errors such as 'Cannot find module', 'Module not found', 'ERR_MODULE_NOT_FOUND', missing package/import, or command not found:\n  a) stop process\n  b) run dependency install/fix for that stack\n  c) retry once\n\n5) Verify local service\n- Wait until curl http://127.0.0.1:<PORT> succeeds (HTTP 200-399) or timeout.\n\n6) Make it reachable from my PC\n- If cloudflared exists, run a quick tunnel to http://127.0.0.1:<PORT> and print the public https://*.trycloudflare.com URL.\n- If cloudflared is unavailable, print exact command to install it and also print fallback URL using server public IP/domain and chosen port.\n\n7) Final output\n- Print: PROJECT_DIR, detected stack, install command, run command, local URL, and public URL for PC access.\n";
+        let host_project_content = r#"---
+        description: host current project and provide a URL reachable from my PC
+        subtask: false
+        ---
+        
+        Host this project for preview.
+        
+        Context:
+        - opencode is running on a remote Linux server via ttyd.
+        - The final preview URL must be reachable from my PC browser, not only from the server itself.
+        - Use any available model in this environment (do not depend on one specific model).
+        
+        Required flow (do exactly):
+        
+        1) Find PROJECT_DIR (any stack, not only JS)
+        - If current dir has one of: package.json, pyproject.toml, requirements.txt, go.mod, Cargo.toml, Gemfile, composer.json, index.html -> use current dir.
+        - Otherwise search child dirs up to depth 3 for those files and pick the nearest match.
+        - Print PROJECT_DIR before running anything.
+        
+        2) Pick port and bind address
+        - Use port 3000 first, if busy use 3001.
+        - Start server on 0.0.0.0 when possible so it can be reached externally.
+        
+        3) Start dev server in a named tmux window
+        - Always create a dedicated tmux window before launching the server:
+          tmux new-window -t uwu-main -n \"host-preview\"
+        - Run dependency install + server command inside that \"host-preview\" window so both user and AI can see logs.
+        - After hosting, report how to attach:
+          tmux select-window -t uwu-main:host-preview
+        
+        4) Install deps + start command by stack
+        - Node/JS/TS (package.json): detect package manager from lockfile, install, then run script in order dev -> start -> preview.
+        - Python (pyproject.toml/requirements.txt): install deps (pip/poetry/uv) and run framework dev server on chosen port.
+        - Go (go.mod): go run/build and serve on chosen port if app supports PORT.
+        - Rust (Cargo.toml): cargo run with chosen port env if supported.
+        - Static site (index.html only): python3 -m http.server <PORT> --bind 0.0.0.0.
+        
+        5) Error recovery
+        - If output contains dependency errors such as 'Cannot find module', 'Module not found', 'ERR_MODULE_NOT_FOUND', missing package/import, or command not found:
+          a) stop process
+          b) run dependency install/fix for that stack
+          c) retry once
+        
+        6) Verify local service
+        - Wait until curl http://127.0.0.1:<PORT> succeeds (HTTP 200-399) or timeout.
+        
+        7) Make it reachable from my PC
+        - If cloudflared exists, run a quick tunnel to http://127.0.0.1:<PORT> and print the public https://*.trycloudflare.com URL.
+        - If cloudflared is not available, use another tunnel method available on this server and print the public URL.
+        
+        8) Output
+        - Print: stack detected, start command used, local URL, public URL, tmux window name (host-preview), and any important notes.
+        "#;
         tokio::fs::write(host_project_file, host_project_content).await?;
 
         Ok(())
@@ -437,6 +489,18 @@ impl WorkspaceManager {
                 "send-keys",
                 "-t",
                 &format!("{}:0.0", session),
+                "gh auth status >/dev/null 2>&1 || echo \"⚠️  GitHub CLI not authenticated. Run: gh auth login\"",
+                "Enter",
+            ])
+            .await?,
+        );
+
+        commands.push(
+            self.run_cmd(&[
+                &tmux,
+                "send-keys",
+                "-t",
+                &format!("{}:0.0", session),
                 &first_opencode_cmd,
                 "Enter",
             ])
@@ -483,6 +547,18 @@ impl WorkspaceManager {
                     "send-keys",
                     "-t",
                     &target_pane,
+                    "gh auth status >/dev/null 2>&1 || echo \"⚠️  GitHub CLI not authenticated. Run: gh auth login\"",
+                    "Enter",
+                ])
+                .await?,
+            );
+
+            commands.push(
+                self.run_cmd(&[
+                    &tmux,
+                    "send-keys",
+                    "-t",
+                    &target_pane,
                     &opencode_cmd,
                     "Enter",
                 ])
@@ -499,7 +575,7 @@ impl WorkspaceManager {
         let ttyd_port_str = ttyd_port.to_string();
         let credential = format!("{}:{}", self.config.ttyd_user, self.config.ttyd_pass);
         let ttyd_cmd_str = format!(
-            "ttyd --port {} -W -t fontSize=13 -t lineHeight=1 --credential {} {} attach -t {}",
+            "ttyd --port {} -W -t fontSize=13 -t lineHeight=1 -t titleFixed=uwu workspace --credential {} {} attach -t {}",
             ttyd_port, credential, tmux, session
         );
 
@@ -513,6 +589,8 @@ impl WorkspaceManager {
                     "fontSize=13",
                     "-t",
                     "lineHeight=1",
+                    "-t",
+                    "titleFixed=uwu workspace",
                     "--credential",
                     &credential,
                     &tmux,
