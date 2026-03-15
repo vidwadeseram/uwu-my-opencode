@@ -139,10 +139,33 @@ impl WorkspaceManager {
 
         let tmux_target = home.join(".tmux.conf");
         let nvim_target = home.join(".config").join("nvim");
+        let oh_my_zsh_target = home.join(".oh-my-zsh");
+        let zshrc_target = home.join(".zshrc");
+        let zsh_custom_target = oh_my_zsh_target.join("custom");
+        let autosuggest_target = zsh_custom_target
+            .join("plugins")
+            .join("zsh-autosuggestions");
+        let syntax_highlight_target = zsh_custom_target
+            .join("plugins")
+            .join("zsh-syntax-highlighting");
+        let completions_target = zsh_custom_target.join("plugins").join("zsh-completions");
+
         let tmux_missing = !tmux_target.exists();
         let nvim_missing = !nvim_target.exists();
+        let oh_my_zsh_missing = !oh_my_zsh_target.exists();
+        let zshrc_missing = !zshrc_target.exists();
+        let autosuggest_missing = !autosuggest_target.exists();
+        let syntax_highlight_missing = !syntax_highlight_target.exists();
+        let completions_missing = !completions_target.exists();
 
-        if !tmux_missing && !nvim_missing {
+        if !tmux_missing
+            && !nvim_missing
+            && !oh_my_zsh_missing
+            && !zshrc_missing
+            && !autosuggest_missing
+            && !syntax_highlight_missing
+            && !completions_missing
+        {
             return Ok(Vec::new());
         }
 
@@ -203,6 +226,83 @@ impl WorkspaceManager {
                     nvim_src.to_string_lossy(),
                     nvim_target.to_string_lossy()
                 ),
+                executed: true,
+                success: Some(true),
+                stdout: None,
+                stderr: None,
+            });
+        }
+
+        if oh_my_zsh_missing {
+            commands.push(
+                self.run_cmd(&[
+                    "git",
+                    "clone",
+                    "--depth",
+                    "1",
+                    "https://github.com/ohmyzsh/ohmyzsh.git",
+                    &oh_my_zsh_target.to_string_lossy(),
+                ])
+                .await?,
+            );
+        }
+
+        if autosuggest_missing {
+            if let Some(parent) = autosuggest_target.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            commands.push(
+                self.run_cmd(&[
+                    "git",
+                    "clone",
+                    "--depth",
+                    "1",
+                    "https://github.com/zsh-users/zsh-autosuggestions",
+                    &autosuggest_target.to_string_lossy(),
+                ])
+                .await?,
+            );
+        }
+
+        if syntax_highlight_missing {
+            if let Some(parent) = syntax_highlight_target.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            commands.push(
+                self.run_cmd(&[
+                    "git",
+                    "clone",
+                    "--depth",
+                    "1",
+                    "https://github.com/zsh-users/zsh-syntax-highlighting.git",
+                    &syntax_highlight_target.to_string_lossy(),
+                ])
+                .await?,
+            );
+        }
+
+        if completions_missing {
+            if let Some(parent) = completions_target.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            commands.push(
+                self.run_cmd(&[
+                    "git",
+                    "clone",
+                    "--depth",
+                    "1",
+                    "https://github.com/zsh-users/zsh-completions",
+                    &completions_target.to_string_lossy(),
+                ])
+                .await?,
+            );
+        }
+
+        if zshrc_missing {
+            let zshrc = "export ZSH=\"$HOME/.oh-my-zsh\"\nZSH_THEME=\"robbyrussell\"\nplugins=(git zsh-autosuggestions zsh-syntax-highlighting zsh-completions)\nsource $ZSH/oh-my-zsh.sh\n";
+            tokio::fs::write(&zshrc_target, zshrc).await?;
+            commands.push(CommandResult {
+                command: format!("write {}", zshrc_target.to_string_lossy()),
                 executed: true,
                 success: Some(true),
                 stdout: None,

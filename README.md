@@ -200,6 +200,12 @@ On Linux only, daemon checks user config and installs missing files from `vidwad
 
 - `~/.tmux.conf` (if missing)
 - `~/.config/nvim` (if missing)
+- `~/.oh-my-zsh` (if missing)
+- Oh My Zsh plugins (if missing):
+  - `zsh-autosuggestions`
+  - `zsh-syntax-highlighting`
+  - `zsh-completions`
+- `~/.zshrc` with plugin-enabled defaults (if missing)
 
 It clones/pulls to `~/.cache/uwu-dotfiles` and does not overwrite existing configs.
 
