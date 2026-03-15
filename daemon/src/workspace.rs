@@ -340,6 +340,29 @@ impl WorkspaceManager {
         );
         tokio::fs::write(plugin_file, plugin_content).await?;
 
+        let workspace_agents_file = dir.join("AGENTS.md");
+        let agents_missing = !tokio::fs::try_exists(&workspace_agents_file)
+            .await
+            .unwrap_or(false);
+        if agents_missing {
+            let worktree_policy = r#"# Workspace Rules
+
+## Git Worktree Policy (Mandatory)
+
+Use git worktrees for all implementation and branch-based work so multiple branches can run in parallel safely.
+
+Required flow:
+1. Run `git worktree list --porcelain` before creating or switching branch context.
+2. If current directory is the primary checkout, create/select a dedicated worktree first:
+   - `git worktree add <absolute-path> -b <branch-name>`
+3. Run edits/tests/builds/commits from that worktree path only.
+4. When delegating to subagents, include the exact worktree path.
+
+Never do feature implementation directly on the primary checkout.
+"#;
+            tokio::fs::write(workspace_agents_file, worktree_policy).await?;
+        }
+
         let host_project_file = commands_dir.join("host-project.md");
         let host_project_content = r#"---
 description: host current project and provide a URL reachable from my PC

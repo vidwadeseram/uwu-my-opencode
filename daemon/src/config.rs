@@ -47,7 +47,24 @@ pub struct Cli {
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum Command {
     Start,
-    Status,
+    Status {
+        #[arg(long, default_value = "uwu-daemon")]
+        service: String,
+    },
+    Logout {
+        #[arg(long, default_value = "uwu-daemon")]
+        service: String,
+    },
+    ResetPassword {
+        #[arg(long)]
+        user: Option<String>,
+        #[arg(long)]
+        new_password: Option<String>,
+        #[arg(long)]
+        install_dir: Option<PathBuf>,
+        #[arg(long, default_value = "uwu-daemon")]
+        service: String,
+    },
     Install {
         #[arg(long)]
         domain: Option<String>,

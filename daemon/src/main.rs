@@ -8,7 +8,7 @@ mod tunnel;
 mod workspace;
 
 use clap::Parser;
-use config::{AppConfig, Cli};
+use config::{AppConfig, Cli, Command};
 use server::{create_router, AppContext};
 use state::StateManager;
 use supervisor::ProcessSupervisor;
@@ -28,26 +28,47 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
-    if let Some(config::Command::Install {
-        domain,
-        email,
-        ttyd_user,
-        ttyd_pass,
-        install_dir,
-        workspace_dir,
-        skip_ssl,
-    }) = cli.command
-    {
-        installer::run_install(
-            domain,
-            email,
-            ttyd_user,
-            ttyd_pass,
-            install_dir,
-            workspace_dir,
-            skip_ssl,
-        );
-        return Ok(());
+    if let Some(command) = cli.command.clone() {
+        match command {
+            Command::Install {
+                domain,
+                email,
+                ttyd_user,
+                ttyd_pass,
+                install_dir,
+                workspace_dir,
+                skip_ssl,
+            } => {
+                installer::run_install(
+                    domain,
+                    email,
+                    ttyd_user,
+                    ttyd_pass,
+                    install_dir,
+                    workspace_dir,
+                    skip_ssl,
+                );
+                return Ok(());
+            }
+            Command::Status { service } => {
+                installer::run_status(service);
+                return Ok(());
+            }
+            Command::Logout { service } => {
+                installer::run_logout(service);
+                return Ok(());
+            }
+            Command::ResetPassword {
+                user,
+                new_password,
+                install_dir,
+                service,
+            } => {
+                installer::run_reset_password(user, new_password, install_dir, service);
+                return Ok(());
+            }
+            Command::Start => {}
+        }
     }
 
     let config = AppConfig::from_cli(&cli);

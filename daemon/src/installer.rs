@@ -1,3 +1,4 @@
+use regex::Regex;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -73,6 +74,139 @@ fn write_file_sudo(path: &str, content: &str) -> bool {
     }
 }
 
+fn user_home(user: &str) -> String {
+    if user == "root" {
+        "/root".to_string()
+    } else {
+        format!("/home/{}", user)
+    }
+}
+
+fn validate_credential(value: &str, label: &str) {
+    if value.trim().is_empty() {
+        eprintln!("[uwu] {} cannot be empty", label);
+        std::process::exit(1);
+    }
+    if value.contains('"') || value.contains('\n') || value.contains('\r') {
+        eprintln!("[uwu] {} cannot contain quotes or newlines", label);
+        std::process::exit(1);
+    }
+}
+
+pub fn run_status(service: String) {
+    println!("[uwu] service: {}", service);
+    run(
+        "showing service status",
+        "sudo",
+        &["systemctl", "status", "--no-pager", &service],
+    );
+    run(
+        "checking service active state",
+        "sudo",
+        &["systemctl", "is-active", &service],
+    );
+    run(
+        "checking local health endpoint",
+        "curl",
+        &["-fsS", "http://127.0.0.1:18080/health"],
+    );
+}
+
+pub fn run_logout(service: String) {
+    run_sudo(
+        "terminating ttyd processes",
+        &["bash", "-lc", "pkill -x ttyd >/dev/null 2>&1 || true"],
+    );
+    if !run_sudo(
+        "restarting daemon service to force logout",
+        &["systemctl", "restart", &service],
+    ) {
+        std::process::exit(1);
+    }
+    println!("[uwu] active ttyd sessions were dropped");
+}
+
+pub fn run_reset_password(
+    user: Option<String>,
+    new_password: Option<String>,
+    install_dir: Option<PathBuf>,
+    service: String,
+) {
+    let current_user = std::env::var("USER").unwrap_or_else(|_| "root".to_string());
+    let fallback_home = std::env::var("HOME").unwrap_or_else(|_| user_home(&current_user));
+
+    let default_install_dir = PathBuf::from(format!("{}/uwu-my-opencode", fallback_home));
+    let install_dir = install_dir.unwrap_or(default_install_dir);
+    let wrapper_path = install_dir.join("scripts/run-daemon.sh");
+
+    if !wrapper_path.exists() {
+        eprintln!(
+            "[uwu] daemon wrapper not found at {}. Pass --install-dir if needed.",
+            wrapper_path.display()
+        );
+        std::process::exit(1);
+    }
+
+    let wrapper = std::fs::read_to_string(&wrapper_path).unwrap_or_else(|e| {
+        eprintln!("[uwu] failed to read {}: {}", wrapper_path.display(), e);
+        std::process::exit(1);
+    });
+
+    let user_re = Regex::new(r#"--ttyd-user\s+"([^"]*)""#).unwrap();
+    let pass_re = Regex::new(r#"--ttyd-pass\s+"([^"]*)""#).unwrap();
+
+    let existing_user = user_re
+        .captures(&wrapper)
+        .and_then(|caps| caps.get(1).map(|m| m.as_str().to_string()))
+        .unwrap_or_else(|| "admin".to_string());
+
+    let ttyd_user = user.unwrap_or(existing_user);
+    let generated_password = format!("uwu-{}", uuid::Uuid::new_v4().simple());
+    let ttyd_pass = new_password.unwrap_or(generated_password);
+
+    validate_credential(&ttyd_user, "ttyd user");
+    validate_credential(&ttyd_pass, "ttyd password");
+
+    if !user_re.is_match(&wrapper) || !pass_re.is_match(&wrapper) {
+        eprintln!(
+            "[uwu] could not find ttyd credential flags in {}",
+            wrapper_path.display()
+        );
+        std::process::exit(1);
+    }
+
+    let updated = pass_re
+        .replace_all(
+            &user_re.replace_all(&wrapper, format!("--ttyd-user \"{}\"", ttyd_user)),
+            format!("--ttyd-pass \"{}\"", ttyd_pass),
+        )
+        .to_string();
+
+    std::fs::write(&wrapper_path, updated).unwrap_or_else(|e| {
+        eprintln!("[uwu] failed to update {}: {}", wrapper_path.display(), e);
+        std::process::exit(1);
+    });
+
+    let wrapper_str = wrapper_path.to_string_lossy().to_string();
+    run(
+        "making daemon wrapper executable",
+        "chmod",
+        &["+x", &wrapper_str],
+    );
+
+    if !run_sudo(
+        "restarting daemon service with new ttyd password",
+        &["systemctl", "restart", &service],
+    ) {
+        std::process::exit(1);
+    }
+
+    println!();
+    println!("[uwu] ttyd credentials updated");
+    println!("[uwu] username: {}", ttyd_user);
+    println!("[uwu] password: {}", ttyd_pass);
+}
+
 pub fn run_install(
     domain: Option<String>,
     email: Option<String>,
@@ -139,6 +273,7 @@ pub fn run_install(
             "python3-certbot-nginx",
             "tmux",
             "neovim",
+            "fontconfig",
             "zsh",
             "libevent-dev",
             "libncurses-dev",
@@ -157,6 +292,13 @@ pub fn run_install(
     run_sudo(
         "installing neovim 0.11.3",
         &["bash", "-lc", nvim_install_script],
+    );
+
+    let nerd_font_install_script = "set -euo pipefail; font_dir=\"$HOME/.local/share/fonts\"; mkdir -p \"$font_dir\"; tmp_dir=$(mktemp -d); archive=\"$tmp_dir/JetBrainsMono.tar.xz\"; curl -fsSL https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.tar.xz -o \"$archive\"; tar -xf \"$archive\" -C \"$font_dir\"; fc-cache -f \"$font_dir\" >/dev/null 2>&1 || true; rm -rf \"$tmp_dir\"";
+    run(
+        "installing JetBrainsMono Nerd Font for icons",
+        "bash",
+        &["-lc", nerd_font_install_script],
     );
 
     let has_ttyd = Command::new("which")
@@ -189,6 +331,19 @@ pub fn run_install(
             );
         }
     }
+
+    run_sudo(
+        "disabling distro ttyd service (daemon manages ttyd)",
+        &[
+            "bash",
+            "-lc",
+            "systemctl disable --now ttyd >/dev/null 2>&1 || true",
+        ],
+    );
+    run_sudo(
+        "clearing any pre-existing ttyd process",
+        &["bash", "-lc", "pkill -x ttyd >/dev/null 2>&1 || true"],
+    );
 
     let has_bun = Command::new("bash")
         .args(["-c", "command -v bun"])
