@@ -342,58 +342,77 @@ impl WorkspaceManager {
 
         let host_project_file = commands_dir.join("host-project.md");
         let host_project_content = r#"---
-        description: host current project and provide a URL reachable from my PC
-        subtask: false
-        ---
-        
-        Host this project for preview.
-        
-        Context:
-        - opencode is running on a remote Linux server via ttyd.
-        - The final preview URL must be reachable from my PC browser, not only from the server itself.
-        - Use any available model in this environment (do not depend on one specific model).
-        
-        Required flow (do exactly):
-        
-        1) Find PROJECT_DIR (any stack, not only JS)
-        - If current dir has one of: package.json, pyproject.toml, requirements.txt, go.mod, Cargo.toml, Gemfile, composer.json, index.html -> use current dir.
-        - Otherwise search child dirs up to depth 3 for those files and pick the nearest match.
-        - Print PROJECT_DIR before running anything.
-        
-        2) Pick port and bind address
-        - Use port 3000 first, if busy use 3001.
-        - Start server on 0.0.0.0 when possible so it can be reached externally.
-        
-        3) Start dev server in a named tmux window
-        - Always create a dedicated tmux window before launching the server:
-          tmux new-window -t uwu-main -n \"host-preview\"
-        - Run dependency install + server command inside that \"host-preview\" window so both user and AI can see logs.
-        - After hosting, report how to attach:
-          tmux select-window -t uwu-main:host-preview
-        
-        4) Install deps + start command by stack
-        - Node/JS/TS (package.json): detect package manager from lockfile, install, then run script in order dev -> start -> preview.
-        - Python (pyproject.toml/requirements.txt): install deps (pip/poetry/uv) and run framework dev server on chosen port.
-        - Go (go.mod): go run/build and serve on chosen port if app supports PORT.
-        - Rust (Cargo.toml): cargo run with chosen port env if supported.
-        - Static site (index.html only): python3 -m http.server <PORT> --bind 0.0.0.0.
-        
-        5) Error recovery
-        - If output contains dependency errors such as 'Cannot find module', 'Module not found', 'ERR_MODULE_NOT_FOUND', missing package/import, or command not found:
-          a) stop process
-          b) run dependency install/fix for that stack
-          c) retry once
-        
-        6) Verify local service
-        - Wait until curl http://127.0.0.1:<PORT> succeeds (HTTP 200-399) or timeout.
-        
-        7) Make it reachable from my PC
-        - If cloudflared exists, run a quick tunnel to http://127.0.0.1:<PORT> and print the public https://*.trycloudflare.com URL.
-        - If cloudflared is not available, use another tunnel method available on this server and print the public URL.
-        
-        8) Output
-        - Print: stack detected, start command used, local URL, public URL, tmux window name (host-preview), and any important notes.
-        "#;
+description: host current project and provide a URL reachable from my PC
+subtask: false
+---
+
+Host this project for preview.
+
+Context:
+- opencode is running on a remote Linux server via ttyd.
+- The final preview URL must be reachable from my PC browser, not only from the server itself.
+- Use any available model in this environment (do not depend on one specific model).
+
+Milestone-first workflow:
+- When the user includes keyword `milestones`, first create a thoughtful implementation plan with milestones and linked issues/tasks.
+- Milestones and issues must map directly to the user request and include explicit technology choices (framework, runtime, package manager, deployment approach).
+- Keep each issue scoped, testable, and ordered by dependency.
+
+Build execution workflow:
+- When the user includes keyword `start-building`, execute the milestone issues in order and start implementation immediately.
+- Track progress issue-by-issue, and do not stop until all milestone issues are completed.
+- As each issue and milestone completes, update project documentation (README/changelog or relevant docs) with what changed and why.
+- When a milestone completes for a web app, provide the currently hosted preview URL. If missing, run `/host-project` to produce one and report it.
+- If model/token quota is exhausted, preserve progress context and continue from the first incomplete issue after quota refresh.
+
+Required flow (do exactly):
+
+1) Build milestones/issues from request
+- Parse the user request into 3-8 milestone buckets.
+- For each milestone, define concrete issues with acceptance criteria and tech decisions.
+- Announce the milestone plan before writing code.
+
+2) Find PROJECT_DIR (any stack, not only JS)
+- If current dir has one of: package.json, pyproject.toml, requirements.txt, go.mod, Cargo.toml, Gemfile, composer.json, index.html -> use current dir.
+- Otherwise search child dirs up to depth 3 for those files and pick the nearest match.
+- Print PROJECT_DIR before running anything.
+
+3) Pick port and bind address
+- Use port 3000 first, if busy use 3001.
+- Start server on 0.0.0.0 when possible so it can be reached externally.
+
+4) Start dev server in a named tmux window
+- Always create a dedicated tmux window before launching the server:
+  tmux new-window -t uwu-main -n "host-preview"
+- Run dependency install + server command inside that "host-preview" window so both user and AI can see logs.
+- After hosting, report how to attach:
+  tmux select-window -t uwu-main:host-preview
+
+5) Install deps + start command by stack
+- Node/JS/TS (package.json): detect package manager from lockfile, install, then run script in order dev -> start -> preview.
+- Python (pyproject.toml/requirements.txt): install deps (pip/poetry/uv) and run framework dev server on chosen port.
+- Go (go.mod): go run/build and serve on chosen port if app supports PORT.
+- Rust (Cargo.toml): cargo run with chosen port env if supported.
+- Static site (index.html only): python3 -m http.server <PORT> --bind 0.0.0.0.
+
+6) Error recovery
+- If output contains dependency errors such as 'Cannot find module', 'Module not found', 'ERR_MODULE_NOT_FOUND', missing package/import, or command not found:
+  a) stop process
+  b) run dependency install/fix for that stack
+  c) retry once
+
+7) Verify local service
+- Wait until curl http://127.0.0.1:<PORT> succeeds (HTTP 200-399) or timeout.
+
+8) Make it reachable from my PC
+- If cloudflared exists, run a quick tunnel to http://127.0.0.1:<PORT> and print the public https://*.trycloudflare.com URL.
+- If cloudflared is unavailable, use another available tunnel/proxy approach and print the reachable URL.
+- As a fallback, print the server public IP/domain with port and clear firewall/security-group steps.
+
+9) Return concise result
+- Always return: stack detected, PROJECT_DIR, local URL, public URL, command used to run app, tmux window name (host-preview), and current status.
+- If unresolved, return exact failing command + last 40 lines of stderr and the next fix you will attempt.
+"#;
         tokio::fs::write(host_project_file, host_project_content).await?;
 
         Ok(())
