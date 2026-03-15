@@ -17,8 +17,18 @@ if ! command -v cargo &>/dev/null; then
   export PATH="$HOME_DIR/.cargo/bin:$PATH"
 fi
 
-echo "[uwu] installing uwu-daemon..."
-cargo install --git https://github.com/vidwadeseram/uwu-my-opencode --path daemon uwu-daemon
+INSTALL_DIR="${HOME_DIR}/uwu-my-opencode"
+
+if [ -d "$INSTALL_DIR/.git" ]; then
+  echo "[uwu] updating repo..."
+  git -C "$INSTALL_DIR" pull --ff-only
+else
+  echo "[uwu] cloning repo..."
+  git clone https://github.com/vidwadeseram/uwu-my-opencode.git "$INSTALL_DIR"
+fi
+
+echo "[uwu] building uwu-daemon..."
+cargo build --manifest-path "$INSTALL_DIR/daemon/Cargo.toml" --release
 
 echo "[uwu] running installer..."
-uwu-daemon install "$@"
+"$INSTALL_DIR/daemon/target/release/uwu-daemon" install "$@"
