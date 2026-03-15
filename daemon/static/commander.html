@@ -56,14 +56,18 @@
       position: sticky;
       top: 0;
       z-index: 15;
-      display: grid;
-      grid-template-columns: auto 1fr auto;
+      display: flex;
       align-items: center;
       gap: 0.5rem;
       padding: 0.7rem 0.75rem;
       background: rgba(11, 14, 14, 0.94);
       border-bottom: 1px solid var(--border);
       backdrop-filter: blur(8px);
+    }
+
+    .header-main {
+      flex: 1;
+      min-width: 0;
     }
 
     .nav-btn,
@@ -103,10 +107,6 @@
       border-color: rgba(0, 206, 209, 0.6);
     }
 
-    .header-main {
-      min-width: 0;
-    }
-
     .title-row {
       display: flex;
       align-items: center;
@@ -142,7 +142,13 @@
       background: #0f1414;
       color: var(--text);
       padding: 0 0.75rem;
-      font-size: 0.92rem;
+      font-size: 0.88rem;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2398a5a6' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.75rem center;
+      padding-right: 2rem;
     }
 
     .session-banner {
@@ -236,6 +242,13 @@
       margin-right: auto;
       background: var(--card);
       border-radius: 16px 16px 16px 4px;
+    }
+
+    .message.assistant .text-part {
+      font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      font-size: 0.84rem;
+      line-height: 1.5;
+      color: #d4ecea;
     }
 
     .message-meta {

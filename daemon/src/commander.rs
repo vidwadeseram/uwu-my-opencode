@@ -51,15 +51,23 @@ pub struct CommanderState {
 }
 
 pub fn strip_ansi(input: &str) -> String {
-    let ansi_re = Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\(B")
+    let ansi_re = Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\(B|\x1b\[[\d;]*m")
         .expect("valid ANSI stripping regex");
     let without_ansi = ansi_re.replace_all(input, "");
     let without_cr = without_ansi.replace('\r', "");
 
+    let tui_chars_re =
+        Regex::new(r"[\x{2500}-\x{257F}\x{2580}-\x{259F}\x{2460}-\x{24FF}\x{25A0}-\x{25FF}]")
+            .expect("valid TUI character regex");
+    let without_tui = tui_chars_re.replace_all(&without_cr, "");
+
     let mut lines = Vec::new();
     let mut saw_blank = false;
-    for line in without_cr.lines() {
-        let trimmed = line.trim_end();
+    for line in without_tui.lines() {
+        let trimmed = line.trim();
+        if is_tui_noise(trimmed) {
+            continue;
+        }
         if trimmed.is_empty() {
             if !saw_blank {
                 lines.push(String::new());
@@ -72,6 +80,36 @@ pub fn strip_ansi(input: &str) -> String {
     }
 
     lines.join("\n").trim().to_string()
+}
+
+fn is_tui_noise(line: &str) -> bool {
+    let s = line.trim();
+    if s.is_empty() {
+        return false;
+    }
+    if s.chars().all(|c| !c.is_alphanumeric()) {
+        return true;
+    }
+    // OpenCode TUI chrome: status bar, prompt placeholder, session info, keyboard hints
+    if s.contains("ctrl+t variants") || s.contains("tab agents") || s.contains("ctrl+p commands") {
+        return true;
+    }
+    if s.starts_with("~/") && s.contains("MCP") && s.contains("/status") {
+        return true;
+    }
+    if s.contains("Ask anything...") {
+        return true;
+    }
+    if s.contains("OpenCode Zen") || s.contains("Big Pickle") || s.contains("(Ultraworker)") {
+        return true;
+    }
+    // >50% non-ASCII chars indicates residual TUI art
+    let non_ascii_ratio =
+        s.chars().filter(|c| !c.is_ascii()).count() as f64 / s.chars().count().max(1) as f64;
+    if non_ascii_ratio > 0.5 {
+        return true;
+    }
+    false
 }
 
 pub async fn capture_pane(tmux_bin: &str, target: &str) -> Result<String> {
