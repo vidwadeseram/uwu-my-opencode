@@ -386,6 +386,10 @@ pub fn run_install(
         }
     };
     write_file_sudo("/etc/nginx/.htpasswd", &htpasswd_content);
+    run_sudo(
+        "setting htpasswd ownership for nginx",
+        &["chown", "root:www-data", "/etc/nginx/.htpasswd"],
+    );
 
     let nginx_conf = format!(
         "server {{\n    listen 80;\n    server_name {};\n\n    auth_basic \"uwu workspace\";\n    auth_basic_user_file /etc/nginx/.htpasswd;\n\n    location /terminal/ {{\n        proxy_pass http://127.0.0.1:7681/;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection \"upgrade\";\n        proxy_read_timeout 86400;\n    }}\n\n    location / {{\n        proxy_pass http://127.0.0.1:18080;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n    }}\n}}\n",
