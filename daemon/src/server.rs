@@ -1,5 +1,6 @@
 use axum::{
     extract::Path,
+    extract::Query,
     extract::State,
     http::StatusCode,
     response::Html,
@@ -15,6 +16,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
+use crate::commander::{CaptureResponse, CommanderState, Message, SessionInfo};
 use crate::config::AppConfig;
 use crate::error::AppError;
 use crate::state::{StateManager, WorkspaceStatus};
@@ -27,6 +29,7 @@ pub struct AppContext {
     pub config: AppConfig,
     pub state: StateManager,
     pub supervisor: ProcessSupervisor,
+    pub commander: CommanderState,
 }
 
 #[derive(Serialize)]
@@ -136,12 +139,33 @@ struct ResetPasswordResponse {
     wrapper_path: String,
 }
 
+#[derive(Deserialize)]
+struct CommanderSendRequest {
+    message: String,
+}
+
+#[derive(Deserialize)]
+struct CommanderMessagesQuery {
+    since: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct CommanderSwitchRequest {
+    target: String,
+}
+
+#[derive(Serialize)]
+struct CommanderSwitchResponse {
+    target: String,
+}
+
 pub fn create_router(ctx: AppContext) -> Router {
     let static_dir = resolve_static_dir();
 
     Router::new()
         .route("/health", get(health))
         .route("/", get(dashboard_index))
+        .route("/commander", get(commander_index))
         .nest_service("/static", ServeDir::new(static_dir))
         .route("/api/vm", get(vm_info))
         .route(
@@ -162,6 +186,14 @@ pub fn create_router(ctx: AppContext) -> Router {
         .route("/api/projects/{id}/stop", post(stop_workspace))
         .route("/api/projects/{id}", delete(delete_workspace))
         .route("/api/reset-password", post(reset_password))
+        .route("/api/commander/send", post(commander_send))
+        .route("/api/commander/messages", get(commander_messages))
+        .route("/api/commander/sessions", get(commander_sessions))
+        .route(
+            "/api/commander/session/switch",
+            post(commander_switch_session),
+        )
+        .route("/api/commander/capture", get(commander_capture))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(ctx)
@@ -175,6 +207,20 @@ async fn dashboard_index() -> Result<Html<String>, AppError> {
             AppError::NotFound(format!(
                 "dashboard file not found at '{}': {}",
                 index_path.display(),
+                err
+            ))
+        })?;
+    Ok(Html(html))
+}
+
+async fn commander_index() -> Result<Html<String>, AppError> {
+    let commander_path = resolve_static_dir().join("commander.html");
+    let html = tokio::fs::read_to_string(&commander_path)
+        .await
+        .map_err(|err| {
+            AppError::NotFound(format!(
+                "commander file not found at '{}': {}",
+                commander_path.display(),
                 err
             ))
         })?;
@@ -482,6 +528,46 @@ async fn reset_password(
                 .to_string(),
         wrapper_path: wrapper_path.to_string_lossy().to_string(),
     }))
+}
+
+async fn commander_send(
+    State(ctx): State<AppContext>,
+    Json(req): Json<CommanderSendRequest>,
+) -> Result<Json<Message>, AppError> {
+    let message = ctx.commander.send(req.message).await?;
+    Ok(Json(message))
+}
+
+async fn commander_messages(
+    State(ctx): State<AppContext>,
+    Query(query): Query<CommanderMessagesQuery>,
+) -> Result<Json<Vec<Message>>, AppError> {
+    let since = query.since.unwrap_or(0);
+    let _ = ctx.commander.poll_updates().await?;
+    let messages = ctx.commander.messages_since(since).await;
+    Ok(Json(messages))
+}
+
+async fn commander_sessions(
+    State(ctx): State<AppContext>,
+) -> Result<Json<Vec<SessionInfo>>, AppError> {
+    let sessions = ctx.commander.list_sessions().await?;
+    Ok(Json(sessions))
+}
+
+async fn commander_switch_session(
+    State(ctx): State<AppContext>,
+    Json(req): Json<CommanderSwitchRequest>,
+) -> Result<Json<CommanderSwitchResponse>, AppError> {
+    let target = ctx.commander.switch_session(req.target).await?;
+    Ok(Json(CommanderSwitchResponse { target }))
+}
+
+async fn commander_capture(
+    State(ctx): State<AppContext>,
+) -> Result<Json<CaptureResponse>, AppError> {
+    let capture = ctx.commander.capture().await?;
+    Ok(Json(capture))
 }
 
 async fn run_command(program: &str, args: &[&str]) -> Option<String> {
