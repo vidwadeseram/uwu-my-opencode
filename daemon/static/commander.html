@@ -57,7 +57,6 @@
       top: 0;
       z-index: 15;
       display: flex;
-      flex-wrap: wrap;
       align-items: center;
       gap: 0.45rem;
       padding: 0.55rem 0.75rem;
@@ -67,12 +66,15 @@
     }
 
     .header-main {
-      display: contents;
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
     }
 
     .nav-btn,
     .refresh-btn,
-    .chip,
     .send-btn,
     select,
     textarea,
@@ -101,7 +103,6 @@
     .nav-btn:hover,
     .refresh-btn:hover,
     .banner-toggle:hover,
-    .chip:hover,
     .send-btn:hover {
       transform: translateY(-1px);
       border-color: rgba(0, 206, 209, 0.6);
@@ -111,6 +112,7 @@
       display: flex;
       align-items: center;
       gap: 0.4rem;
+      white-space: nowrap;
     }
 
     .title {
@@ -322,30 +324,6 @@
       padding: 0.5rem 0.55rem calc(0.55rem + env(safe-area-inset-bottom));
     }
 
-    .chips {
-      display: flex;
-      gap: 0.45rem;
-      overflow-x: auto;
-      padding: 0.15rem 0.2rem 0.5rem;
-      scrollbar-width: none;
-    }
-
-    .chips::-webkit-scrollbar {
-      display: none;
-    }
-
-    .chip {
-      border: 1px solid rgba(0, 206, 209, 0.35);
-      background: var(--accent-soft);
-      color: #c9f9f8;
-      border-radius: 999px;
-      padding: 0.45rem 0.75rem;
-      white-space: nowrap;
-      font-size: 0.82rem;
-      cursor: pointer;
-      transition: transform 140ms ease, border-color 140ms ease;
-    }
-
     .chat-input-bar {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -441,12 +419,6 @@
     </main>
 
     <section class="chat-input-zone">
-      <div class="chips" id="quickChips">
-        <button class="chip" type="button" data-message="run tests">run tests</button>
-        <button class="chip" type="button" data-message="git status">git status</button>
-        <button class="chip" type="button" data-message="deploy">deploy</button>
-        <button class="chip" type="button" data-message="show logs">show logs</button>
-      </div>
       <form class="chat-input-bar" id="chatForm">
         <textarea id="chatInput" rows="1" placeholder="Send instructions to OpenCode..." required></textarea>
         <button class="send-btn" id="sendBtn" type="submit">Send</button>
@@ -478,7 +450,6 @@
     const bannerContent = document.getElementById("bannerContent");
     const bannerName = document.getElementById("bannerName");
     const bannerPath = document.getElementById("bannerPath");
-    const quickChips = document.getElementById("quickChips");
 
     function formatTime(timestamp) {
       const date = new Date(timestamp);
@@ -758,14 +729,6 @@
         event.preventDefault();
         chatForm.requestSubmit();
       }
-    });
-
-    quickChips.addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-message]");
-      if (!button) {
-        return;
-      }
-      sendMessage(button.getAttribute("data-message"));
     });
 
     refreshBtn.addEventListener("click", async () => {
