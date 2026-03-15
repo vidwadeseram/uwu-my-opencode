@@ -132,6 +132,7 @@ pub fn run_install(
             "-y",
             "-qq",
             "git",
+            "gh",
             "curl",
             "build-essential",
             "nginx",
