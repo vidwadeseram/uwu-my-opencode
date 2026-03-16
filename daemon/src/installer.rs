@@ -191,6 +191,12 @@ pub fn run_install(
         }
     }
 
+    let nerd_ttyd_install_script = "set -euo pipefail; arch=$(uname -m); case \"$arch\" in x86_64) url='https://github.com/Lanjelin/nerd-ttyd/releases/download/1.7.7/ttyd.x86_64' ;; *) exit 0 ;; esac; tmp=/tmp/ttyd.nerd; if curl -fsSL \"$url\" -o \"$tmp\"; then install -m 0755 \"$tmp\" /usr/local/bin/ttyd; fi";
+    run_sudo(
+        "installing nerd-font-enabled ttyd (x86_64)",
+        &["bash", "-lc", nerd_ttyd_install_script],
+    );
+
     let has_bun = Command::new("bash")
         .args(["-c", "command -v bun"])
         .stdout(Stdio::null())
