@@ -116,6 +116,7 @@ impl From<&crate::state::Workspace> for WorkspaceResponse {
 struct VmInfoResponse {
     hostname: String,
     cpu_cores: u32,
+    cpu_usage_percent: Option<f64>,
     memory_total_mb: u64,
     memory_used_mb: u64,
     disk_total_gb: u64,
@@ -515,6 +516,8 @@ async fn vm_info() -> Result<Json<VmInfoResponse>, AppError> {
         .and_then(|value| value.parse::<u32>().ok())
         .unwrap_or(0);
 
+    let cpu_usage_percent = sample_cpu_usage_percent().await;
+
     let (memory_total_mb, memory_used_mb) = parse_memory_info(
         run_command("free", &["-m"])
             .await
@@ -546,6 +549,7 @@ async fn vm_info() -> Result<Json<VmInfoResponse>, AppError> {
     Ok(Json(VmInfoResponse {
         hostname,
         cpu_cores,
+        cpu_usage_percent,
         memory_total_mb,
         memory_used_mb,
         disk_total_gb,
@@ -667,6 +671,43 @@ fn parse_memory_info(free_output: &str) -> (u64, u64) {
         }
     }
     (0, 0)
+}
+
+fn parse_cpu_times(proc_stat: &str) -> Option<(u64, u64)> {
+    let line = proc_stat.lines().find(|line| line.starts_with("cpu "))?;
+    let mut fields = line.split_whitespace();
+    let _ = fields.next();
+
+    let values: Vec<u64> = fields
+        .filter_map(|value| value.parse::<u64>().ok())
+        .collect();
+    if values.len() < 4 {
+        return None;
+    }
+
+    let idle = values[3].saturating_add(*values.get(4).unwrap_or(&0));
+    let total = values.iter().sum();
+    Some((idle, total))
+}
+
+async fn sample_cpu_usage_percent() -> Option<f64> {
+    let first = tokio::fs::read_to_string("/proc/stat").await.ok()?;
+    let (idle1, total1) = parse_cpu_times(&first)?;
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let second = tokio::fs::read_to_string("/proc/stat").await.ok()?;
+    let (idle2, total2) = parse_cpu_times(&second)?;
+
+    let total_delta = total2.saturating_sub(total1);
+    if total_delta == 0 {
+        return None;
+    }
+
+    let idle_delta = idle2.saturating_sub(idle1);
+    let busy_delta = total_delta.saturating_sub(idle_delta);
+    let percent = (busy_delta as f64 / total_delta as f64) * 100.0;
+    Some((percent * 10.0).round() / 10.0)
 }
 
 fn parse_disk_info(df_output: &str) -> (u64, u64) {
