@@ -271,6 +271,11 @@
       background: linear-gradient(145deg, #0c3f4d, #0a3340);
     }
 
+    .button.logout {
+      border-color: rgba(255, 107, 107, 0.58);
+      background: linear-gradient(145deg, #3b1a1a, #311414);
+    }
+
     button.danger {
       border-color: rgba(255, 107, 107, 0.5);
       background: linear-gradient(145deg, #3b1a1a, #331616);
@@ -358,6 +363,7 @@
       <div class="actions">
         <a class="button commander" href="/commander">Commander</a>
         <a class="button" href="/terminal/" target="_blank" rel="noreferrer">Connect to Terminal</a>
+        <a class="button logout" href="/logout">Logout</a>
       </div>
     </nav>
 
@@ -492,6 +498,7 @@
               <div class="row"><strong>${ws.name}</strong><span class="status ${ws.status}">${ws.status}</span></div>
               <div class="label">${ws.path}</div>
               <div class="label">Size: ${ws.size_mb !== null && ws.size_mb !== undefined ? `${ws.size_mb} MB` : "unknown"}</div>
+              <div class="label">${ws.browser_url ? `URL: <a href="${ws.browser_url}" target="_blank" rel="noreferrer">${ws.browser_url}</a>` : "URL: /run-project to publish"}</div>
             </div>`)
           .join("");
       }
@@ -508,12 +515,11 @@
               </div>
               <div class="project-meter"><span style="width:${statusPercent(p.status)}%"></span></div>
               <div class="label">${p.path}</div>
-              <div class="label">${p.browser_url ? `URL: <a href="${p.browser_url}" target="_blank" rel="noreferrer">${p.browser_url}</a>` : "URL: not running"}</div>
+              <div class="label">${p.browser_url ? `URL: <a href="${p.browser_url}" target="_blank" rel="noreferrer">${p.browser_url}</a>` : "URL: /run-project to publish"}</div>
               <div class="actions" style="margin-top:0.65rem;">
                 <button data-action="start">Start</button>
                 <button data-action="stop">Stop</button>
                 <button class="danger" data-action="delete">Delete</button>
-                ${p.terminal_url ? `<a class="button" href="${p.terminal_url}" target="_blank" rel="noreferrer">Open Terminal</a>` : ""}
               </div>
             </div>`)
           .join("");

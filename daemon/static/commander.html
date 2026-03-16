@@ -75,6 +75,7 @@
 
     .nav-btn,
     .refresh-btn,
+    .logout-btn,
     .send-btn,
     select,
     textarea,
@@ -84,6 +85,7 @@
 
     .nav-btn,
     .refresh-btn,
+    .logout-btn,
     .banner-toggle {
       border: 1px solid var(--border);
       color: var(--text);
@@ -102,10 +104,16 @@
 
     .nav-btn:hover,
     .refresh-btn:hover,
+    .logout-btn:hover,
     .banner-toggle:hover,
     .send-btn:hover {
       transform: translateY(-1px);
       border-color: rgba(0, 206, 209, 0.6);
+    }
+
+    .logout-btn {
+      border-color: rgba(255, 107, 107, 0.58);
+      background: linear-gradient(145deg, #3b1a1a, #311414);
     }
 
     .title-row {
@@ -395,6 +403,7 @@
         <select id="sessionSelect" aria-label="Select session"></select>
       </div>
       <button class="refresh-btn" id="refreshBtn" type="button">Refresh</button>
+      <a class="logout-btn" href="/logout">Logout</a>
     </header>
 
     <section class="session-banner" id="sessionBanner">

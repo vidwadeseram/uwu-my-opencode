@@ -115,6 +115,27 @@ impl StateManager {
             .cloned()
     }
 
+    pub async fn get_workspace_by_name(&self, name: &str) -> Option<Workspace> {
+        self.state
+            .read()
+            .await
+            .workspaces
+            .iter()
+            .find(|w| w.name == name)
+            .cloned()
+    }
+
+    pub async fn ensure_workspace(
+        &self,
+        name: &str,
+        workspace_root: &Path,
+    ) -> Result<Workspace, AppError> {
+        if let Some(existing) = self.get_workspace_by_name(name).await {
+            return Ok(existing);
+        }
+        self.create_workspace(name, workspace_root).await
+    }
+
     pub async fn create_workspace(
         &self,
         name: &str,

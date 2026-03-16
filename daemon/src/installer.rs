@@ -191,6 +191,12 @@ pub fn run_install(
         }
     }
 
+    let nerd_ttyd_install_script = "set -euo pipefail; arch=$(uname -m); case \"$arch\" in x86_64) url='https://github.com/Lanjelin/nerd-ttyd/releases/download/1.7.7/ttyd.x86_64' ;; *) exit 0 ;; esac; tmp=/tmp/ttyd.nerd; if curl -fsSL \"$url\" -o \"$tmp\"; then install -m 0755 \"$tmp\" /usr/local/bin/ttyd; fi";
+    run_sudo(
+        "installing nerd-font-enabled ttyd (x86_64)",
+        &["bash", "-lc", nerd_ttyd_install_script],
+    );
+
     let has_bun = Command::new("bash")
         .args(["-c", "command -v bun"])
         .stdout(Stdio::null())
@@ -393,7 +399,7 @@ pub fn run_install(
     );
 
     let nginx_conf = format!(
-        "server {{\n    listen 80;\n    server_name {};\n\n    auth_basic \"uwu workspace\";\n    auth_basic_user_file /etc/nginx/.htpasswd;\n\n    location /terminal/ {{\n        proxy_pass http://127.0.0.1:7681/;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection \"upgrade\";\n        proxy_read_timeout 86400;\n    }}\n\n    location / {{\n        proxy_pass http://127.0.0.1:18080;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n    }}\n}}\n",
+        "server {{\n    listen 80;\n    server_name {};\n\n    auth_basic \"uwu workspace\";\n    auth_basic_user_file /etc/nginx/.htpasswd;\n\n    location = /terminal/7681/ {{\n        proxy_pass http://127.0.0.1:7681/;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection \"upgrade\";\n        proxy_read_timeout 86400;\n    }}\n\n    location ~ ^/terminal/(?<term_port>[0-9]{{2,5}})/?$ {{\n        set $terminal_upstream 127.0.0.1:$term_port;\n        proxy_pass http://$terminal_upstream/;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection \"upgrade\";\n        proxy_read_timeout 86400;\n    }}\n\n    location /terminal/ {{\n        proxy_pass http://127.0.0.1:7681/;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection \"upgrade\";\n        proxy_read_timeout 86400;\n    }}\n\n    location / {{\n        proxy_pass http://127.0.0.1:18080;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n    }}\n}}\n",
         domain
     );
     write_file_sudo("/etc/nginx/sites-available/uwu-my-opencode", &nginx_conf);
