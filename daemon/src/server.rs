@@ -95,13 +95,7 @@ pub struct PreviewResponse {
 
 impl From<&crate::state::Workspace> for WorkspaceResponse {
     fn from(ws: &crate::state::Workspace) -> Self {
-        let terminal_url = if ws.status == WorkspaceStatus::Running {
-            ws.ttyd_port
-                .map(|port| format!("/terminal/{}/", port))
-                .or_else(|| Some("/terminal/".to_string()))
-        } else {
-            Some("/terminal/".to_string())
-        };
+        let terminal_url = Some("/terminal/".to_string());
 
         Self {
             id: ws.id.clone(),
@@ -270,9 +264,6 @@ async fn list_workspaces(
         response.size_mb = Some(directory_size_bytes(&ws.path).await / (1024 * 1024));
         let tunnels = ctx.state.list_tunnels(&ws.id).await;
         response.browser_url = tunnels.iter().rev().find_map(|t| t.tunnel_url.clone());
-        if response.browser_url.is_none() {
-            response.browser_url = response.terminal_url.clone();
-        }
         responses.push(response);
     }
 
@@ -282,6 +273,7 @@ async fn list_workspaces(
 async fn sync_state_with_workspace_dirs(ctx: &AppContext) -> Result<(), AppError> {
     tokio::fs::create_dir_all(&ctx.config.workspace_root).await?;
     let mut entries = tokio::fs::read_dir(&ctx.config.workspace_root).await?;
+    let mut found_workspace_dir = false;
 
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
@@ -298,10 +290,25 @@ async fn sync_state_with_workspace_dirs(ctx: &AppContext) -> Result<(), AppError
             continue;
         }
 
+        found_workspace_dir = true;
+
         let _ = ctx
             .state
             .ensure_workspace(trimmed, &ctx.config.workspace_root)
             .await;
+    }
+
+    if !found_workspace_dir {
+        let existing = ctx.state.list_workspaces().await;
+        if existing.is_empty() {
+            let default_name = "workspace-1";
+            let default_path = ctx.config.workspace_root.join(default_name);
+            tokio::fs::create_dir_all(&default_path).await?;
+            let _ = ctx
+                .state
+                .ensure_workspace(default_name, &ctx.config.workspace_root)
+                .await;
+        }
     }
 
     Ok(())
