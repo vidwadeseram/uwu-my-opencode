@@ -2,8 +2,11 @@ use axum::{
     extract::Path,
     extract::Query,
     extract::State,
-    http::StatusCode,
-    response::Html,
+    http::{
+        header::{CACHE_CONTROL, EXPIRES, PRAGMA, WWW_AUTHENTICATE},
+        StatusCode,
+    },
+    response::{Html, IntoResponse},
     routing::{delete, get, post},
     Json, Router,
 };
@@ -92,12 +95,13 @@ pub struct PreviewResponse {
 
 impl From<&crate::state::Workspace> for WorkspaceResponse {
     fn from(ws: &crate::state::Workspace) -> Self {
-        let browser_url = ws
-            .ttyd_port
-            .map(|port| format!("http://127.0.0.1:{}", port));
-        let terminal_url = ws
-            .ttyd_port
-            .map(|_| format!("/terminal/?arg=attach&arg=-t&arg=ws-{}", ws.name));
+        let terminal_url = if ws.status == WorkspaceStatus::Running {
+            ws.ttyd_port
+                .map(|port| format!("/terminal/{}/", port))
+                .or_else(|| Some("/terminal/".to_string()))
+        } else {
+            Some("/terminal/".to_string())
+        };
 
         Self {
             id: ws.id.clone(),
@@ -107,7 +111,7 @@ impl From<&crate::state::Workspace> for WorkspaceResponse {
             ttyd_port: ws.ttyd_port,
             status: format!("{:?}", ws.status).to_lowercase(),
             created_at: ws.created_at.to_rfc3339(),
-            browser_url,
+            browser_url: None,
             terminal_url,
             size_mb: None,
         }
@@ -165,6 +169,7 @@ pub fn create_router(ctx: AppContext) -> Router {
         .route("/health", get(health))
         .route("/", get(dashboard_index))
         .route("/commander", get(commander_index))
+        .route("/logout", get(logout))
         .nest_service("/static", ServeDir::new(static_dir))
         .route("/api/vm", get(vm_info))
         .route(
@@ -226,6 +231,25 @@ async fn commander_index() -> Result<Html<String>, AppError> {
     Ok(Html(html))
 }
 
+async fn logout() -> impl IntoResponse {
+    (
+        StatusCode::UNAUTHORIZED,
+        [
+            (
+                WWW_AUTHENTICATE,
+                "Basic realm=\"uwu workspace\", charset=\"UTF-8\"",
+            ),
+            (
+                CACHE_CONTROL,
+                "no-store, no-cache, must-revalidate, proxy-revalidate",
+            ),
+            (PRAGMA, "no-cache"),
+            (EXPIRES, "0"),
+        ],
+        "Logged out",
+    )
+}
+
 async fn health(State(ctx): State<AppContext>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
@@ -237,16 +261,50 @@ async fn health(State(ctx): State<AppContext>) -> Json<HealthResponse> {
 async fn list_workspaces(
     State(ctx): State<AppContext>,
 ) -> Result<Json<Vec<WorkspaceResponse>>, AppError> {
+    sync_state_with_workspace_dirs(&ctx).await?;
     let workspaces = ctx.state.list_workspaces().await;
     let mut responses = Vec::with_capacity(workspaces.len());
 
     for ws in &workspaces {
         let mut response = WorkspaceResponse::from(ws);
         response.size_mb = Some(directory_size_bytes(&ws.path).await / (1024 * 1024));
+        let tunnels = ctx.state.list_tunnels(&ws.id).await;
+        response.browser_url = tunnels.iter().rev().find_map(|t| t.tunnel_url.clone());
+        if response.browser_url.is_none() {
+            response.browser_url = response.terminal_url.clone();
+        }
         responses.push(response);
     }
 
     Ok(Json(responses))
+}
+
+async fn sync_state_with_workspace_dirs(ctx: &AppContext) -> Result<(), AppError> {
+    tokio::fs::create_dir_all(&ctx.config.workspace_root).await?;
+    let mut entries = tokio::fs::read_dir(&ctx.config.workspace_root).await?;
+
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let _ = ctx
+            .state
+            .ensure_workspace(trimmed, &ctx.config.workspace_root)
+            .await;
+    }
+
+    Ok(())
 }
 
 async fn create_workspace(
@@ -275,10 +333,9 @@ async fn start_workspace(
     State(ctx): State<AppContext>,
     Path(id): Path<String>,
 ) -> Result<Json<StartWorkspaceResponse>, AppError> {
-    let ws = ctx
-        .state
-        .get_workspace(&id)
-        .await
+    sync_state_with_workspace_dirs(&ctx).await?;
+    let ws = resolve_workspace_by_id_or_name(&ctx, &id)
+        .await?
         .ok_or_else(|| AppError::NotFound(format!("workspace '{id}' not found")))?;
 
     if ws.status == WorkspaceStatus::Running {
@@ -309,10 +366,9 @@ async fn stop_workspace(
     State(ctx): State<AppContext>,
     Path(id): Path<String>,
 ) -> Result<Json<StopWorkspaceResponse>, AppError> {
-    let ws = ctx
-        .state
-        .get_workspace(&id)
-        .await
+    sync_state_with_workspace_dirs(&ctx).await?;
+    let ws = resolve_workspace_by_id_or_name(&ctx, &id)
+        .await?
         .ok_or_else(|| AppError::NotFound(format!("workspace '{id}' not found")))?;
 
     let manager = WorkspaceManager::new(ctx.config.clone(), ctx.supervisor.clone());
@@ -340,10 +396,9 @@ async fn delete_workspace(
     State(ctx): State<AppContext>,
     Path(id): Path<String>,
 ) -> Result<Json<WorkspaceResponse>, AppError> {
-    let ws = ctx
-        .state
-        .get_workspace(&id)
-        .await
+    sync_state_with_workspace_dirs(&ctx).await?;
+    let ws = resolve_workspace_by_id_or_name(&ctx, &id)
+        .await?
         .ok_or_else(|| AppError::NotFound(format!("workspace '{id}' not found")))?;
 
     if ws.status == WorkspaceStatus::Running {
@@ -371,10 +426,9 @@ async fn create_preview(
     Path(id): Path<String>,
     Json(req): Json<PreviewRequest>,
 ) -> Result<(StatusCode, Json<PreviewResponse>), AppError> {
-    let ws = ctx
-        .state
-        .get_workspace(&id)
-        .await
+    sync_state_with_workspace_dirs(&ctx).await?;
+    let ws = resolve_workspace_by_id_or_name(&ctx, &id)
+        .await?
         .ok_or_else(|| AppError::NotFound(format!("workspace '{id}' not found")))?;
 
     let tunnel_mgr = TunnelManager::new(ctx.config.clone(), ctx.supervisor.clone());
@@ -401,10 +455,9 @@ async fn delete_preview(
     Path(id): Path<String>,
     Json(req): Json<PreviewRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let ws = ctx
-        .state
-        .get_workspace(&id)
-        .await
+    sync_state_with_workspace_dirs(&ctx).await?;
+    let ws = resolve_workspace_by_id_or_name(&ctx, &id)
+        .await?
         .ok_or_else(|| AppError::NotFound(format!("workspace '{id}' not found")))?;
 
     let tunnel_mgr = TunnelManager::new(ctx.config.clone(), ctx.supervisor.clone());
@@ -423,14 +476,26 @@ async fn list_previews(
     State(ctx): State<AppContext>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<crate::state::Tunnel>>, AppError> {
-    let _ = ctx
-        .state
-        .get_workspace(&id)
-        .await
+    sync_state_with_workspace_dirs(&ctx).await?;
+    let ws = resolve_workspace_by_id_or_name(&ctx, &id)
+        .await?
         .ok_or_else(|| AppError::NotFound(format!("workspace '{id}' not found")))?;
 
-    let tunnels = ctx.state.list_tunnels(&id).await;
+    let tunnels = ctx.state.list_tunnels(&ws.id).await;
     Ok(Json(tunnels))
+}
+
+async fn resolve_workspace_by_id_or_name(
+    ctx: &AppContext,
+    id_or_name: &str,
+) -> Result<Option<crate::state::Workspace>, AppError> {
+    if let Some(ws) = ctx.state.get_workspace(id_or_name).await {
+        return Ok(Some(ws));
+    }
+    if let Some(ws) = ctx.state.get_workspace_by_name(id_or_name).await {
+        return Ok(Some(ws));
+    }
+    Ok(None)
 }
 
 async fn vm_info() -> Result<Json<VmInfoResponse>, AppError> {

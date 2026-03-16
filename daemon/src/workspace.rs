@@ -465,6 +465,38 @@ Required output while running:
 "#;
         tokio::fs::write(start_building_file, start_building_content).await?;
 
+        let run_project_file = commands_dir.join("run-project.md");
+        let run_project_content = r#"---
+description: run a project in its own dedicated terminal and return view URL
+subtask: false
+---
+
+Run the requested project in a dedicated runtime terminal separate from the workspace terminal.
+
+Rules:
+- Do not run the app in the workspace's main tmux pane.
+- Create a dedicated tmux session for runtime logs:
+  tmux new-session -d -s run-<project-slug> -c <PROJECT_DIR>
+- Start the app inside that session and keep it attached to runtime output.
+- Start a dedicated ttyd instance for that runtime session on an available port (prefer 8800+, increment if used).
+- Return terminal URL as `/terminal/<PORT>/` so users can watch logs from browser.
+
+Project URL requirements:
+- If the app exposes a web server, return a direct view URL.
+- If a tunnel is needed, create one and return the public URL.
+- Always return both:
+  1) View URL (the app)
+  2) Runtime terminal URL (`/terminal/<PORT>/`)
+
+Output format:
+1) Project detected and start command used
+2) Runtime tmux session name
+3) Runtime terminal URL
+4) Project view URL
+5) Health check result
+"#;
+        tokio::fs::write(run_project_file, run_project_content).await?;
+
         Ok(())
     }
 
