@@ -525,7 +525,13 @@
         projectsList.innerHTML = "<div class='label'>No projects found.</div>";
       } else {
         projectsList.innerHTML = state.projects
-          .map((p) => `
+          .map((p) => {
+            const urlLabel = p.browser_url
+              ? `URL: <a href="${p.browser_url}" target="_blank" rel="noreferrer">${p.browser_url}</a>`
+              : (p.status === "running"
+                  ? "URL: running, but no public URL yet (run /run-project to publish)"
+                  : "URL: /run-project to publish");
+            return `
             <div class="item" data-id="${p.id}">
               <div class="row">
                 <strong>${p.name}</strong>
@@ -533,13 +539,14 @@
               </div>
               <div class="project-meter"><span style="width:${statusPercent(p.status)}%"></span></div>
               <div class="label">${p.path}</div>
-              <div class="label">${p.browser_url ? `URL: <a href="${p.browser_url}" target="_blank" rel="noreferrer">${p.browser_url}</a>` : "URL: /run-project to publish"}</div>
+              <div class="label">${urlLabel}</div>
               <div class="actions" style="margin-top:0.65rem;">
-                <button data-action="start">Start</button>
-                <button data-action="stop">Stop</button>
+                ${p.status === "running" ? "" : '<button data-action="start">Start</button>'}
+                ${p.status === "running" ? '<button data-action="stop">Stop</button>' : ""}
                 <button class="danger" data-action="delete">Delete</button>
               </div>
-            </div>`)
+            </div>`;
+          })
           .join("");
       }
 
