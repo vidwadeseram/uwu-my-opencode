@@ -444,6 +444,20 @@
       return `<div class="metric"><div class="label">${label}</div><div class="value">${value}</div></div>`;
     }
 
+    function usagePercent(used, total) {
+      if (!Number.isFinite(used) || !Number.isFinite(total) || total <= 0) {
+        return null;
+      }
+      return (used / total) * 100;
+    }
+
+    function formatPercent(value) {
+      if (!Number.isFinite(value)) {
+        return "-";
+      }
+      return `${value.toFixed(1)}%`;
+    }
+
     function setGlobalError(message) {
       topError.textContent = message || "";
     }
@@ -478,13 +492,17 @@
 
     function render() {
       const vm = state.vm;
+      const memoryPercent = vm ? usagePercent(vm.memory_used_mb, vm.memory_total_mb) : null;
+      const diskPercent = vm ? usagePercent(vm.disk_used_gb, vm.disk_total_gb) : null;
+
       vmMetrics.innerHTML = vm
         ? [
             metric("Hostname", vm.hostname || "-"),
             metric("OS", vm.os || "-"),
             metric("CPU Cores", formatNumber(vm.cpu_cores, "")),
-            metric("Memory", `${formatNumber(vm.memory_used_mb, "")} / ${formatNumber(vm.memory_total_mb, "")} MB`),
-            metric("Disk", `${formatNumber(vm.disk_used_gb, "")} / ${formatNumber(vm.disk_total_gb, "")} GB`),
+            metric("CPU Usage", formatPercent(vm.cpu_usage_percent)),
+            metric("RAM Usage", `${formatNumber(vm.memory_used_mb, "")} / ${formatNumber(vm.memory_total_mb, "")} MB (${formatPercent(memoryPercent)})`),
+            metric("Disk Usage", `${formatNumber(vm.disk_used_gb, "")} / ${formatNumber(vm.disk_total_gb, "")} GB (${formatPercent(diskPercent)})`),
             metric("Uptime", formatUptime(vm.uptime_seconds)),
           ].join("")
         : "<div class='label'>Loading VM details...</div>";
