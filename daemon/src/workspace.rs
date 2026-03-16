@@ -354,12 +354,12 @@ Context:
 - Use any available model in this environment (do not depend on one specific model).
 
 Milestone-first workflow:
-- When the user includes keyword `milestones`, first create a thoughtful implementation plan with milestones and linked issues/tasks.
+- When the user runs `/milestones`, first create a thoughtful implementation plan with milestones and linked issues/tasks.
 - Milestones and issues must map directly to the user request and include explicit technology choices (framework, runtime, package manager, deployment approach).
 - Keep each issue scoped, testable, and ordered by dependency.
 
 Build execution workflow:
-- When the user includes keyword `start-building`, execute the milestone issues in order and start implementation immediately.
+- When the user runs `/start-building`, execute the milestone issues in order and start implementation immediately.
 - Track progress issue-by-issue, and do not stop until all milestone issues are completed.
 - As each issue and milestone completes, update project documentation (README/changelog or relevant docs) with what changed and why.
 - When a milestone completes for a web app, provide the currently hosted preview URL. If missing, run `/host-project` to produce one and report it.
@@ -414,6 +414,56 @@ Required flow (do exactly):
 - If unresolved, return exact failing command + last 40 lines of stderr and the next fix you will attempt.
 "#;
         tokio::fs::write(host_project_file, host_project_content).await?;
+
+        let milestones_file = commands_dir.join("milestones.md");
+        let milestones_content = r#"---
+description: create milestone and issue plan from the active request
+subtask: false
+---
+
+Create a milestone-first implementation plan for the active request.
+
+Requirements:
+- Produce 3-8 milestones that map directly to the request.
+- For each milestone, define concrete issues/tasks with acceptance criteria.
+- Explicitly choose technologies (framework, runtime, package manager, deployment approach).
+- Order issues by dependency and call out critical path items.
+- Keep issues scoped, testable, and implementation-ready.
+
+Output format:
+1) Milestone summary (name + outcome)
+2) Issue list per milestone
+3) Technology decisions and rationale
+4) Execution order
+5) Definition of done per milestone
+"#;
+        tokio::fs::write(milestones_file, milestones_content).await?;
+
+        let start_building_file = commands_dir.join("start-building.md");
+        let start_building_content = r#"---
+description: execute milestone issues until completion with docs and hosted URL updates
+subtask: false
+---
+
+Execute the planned milestone issues and keep building until all milestones are completed.
+
+Execution rules:
+- If no plan exists, run `/milestones` first, then continue.
+- Execute issues in dependency order and track issue-by-issue progress.
+- Do not stop until all milestone issues are done.
+- After each completed issue and milestone, update project documentation (README/changelog or relevant docs).
+- For web apps, report the current hosted preview URL when a milestone completes.
+- If no hosted URL exists yet, run `/host-project`, then report the URL.
+- If token/subscription quota is exhausted, preserve progress context and resume from the first incomplete issue after quota refresh.
+
+Required output while running:
+1) Current milestone and active issue
+2) Completed issues since last update
+3) Documentation updates made
+4) Hosted URL status (for web apps)
+5) Remaining milestones and ETA
+"#;
+        tokio::fs::write(start_building_file, start_building_content).await?;
 
         Ok(())
     }
@@ -593,7 +643,7 @@ Required flow (do exactly):
         let session = "uwu-main";
         let ttyd_port_str = ttyd_port.to_string();
         let credential = format!("{}:{}", self.config.ttyd_user, self.config.ttyd_pass);
-        let font_family = "JetBrainsMono Nerd Font, JetBrains Mono, monospace";
+        let font_family = "JetBrains, SarasaMono, JetBrainsMono Nerd Font, monospace";
         let ttyd_cmd_str = format!(
             "ttyd --port {} -W -t fontSize=13 -t lineHeight=1 -t 'fontFamily={}' -t titleFixed=uwu\\ workspace --credential {} {} attach -t {}",
             ttyd_port, font_family, credential, tmux, session
@@ -699,9 +749,10 @@ Required flow (do exactly):
 
         let ttyd_port_str = ttyd_port.to_string();
         let credential = format!("{}:{}", self.config.ttyd_user, self.config.ttyd_pass);
+        let font_family = "JetBrains, SarasaMono, JetBrainsMono Nerd Font, monospace";
         let ttyd_cmd_str = format!(
-            "ttyd --port {} --credential {} {} attach -t {}",
-            ttyd_port, credential, tmux, session
+            "ttyd --port {} -W -t fontSize=13 -t lineHeight=1 -t 'fontFamily={}' --credential {} {} attach -t {}",
+            ttyd_port, font_family, credential, tmux, session
         );
 
         let browser_url = if self.config.execute_commands {
@@ -709,6 +760,13 @@ Required flow (do exactly):
                 .args([
                     "--port",
                     &ttyd_port_str,
+                    "-W",
+                    "-t",
+                    "fontSize=13",
+                    "-t",
+                    "lineHeight=1",
+                    "-t",
+                    &format!("fontFamily={}", font_family),
                     "--credential",
                     &credential,
                     &tmux,
