@@ -59,6 +59,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/vidwadeseram/uwu-my-opencode
 
 It installs Rust, builds `uwu-daemon`, then runs the interactive installer which asks for your domain, email, and credentials. When done it prints your live HTTPS URL.
 
+This native installer path stays supported and is still the better choice on low-memory machines.
+
 You can also pass flags to skip prompts:
 
 ```bash
@@ -75,6 +77,34 @@ If you already have Rust/cargo installed, skip the bootstrap script and run the 
 cargo install --git https://github.com/vidwadeseram/uwu-my-opencode --path daemon uwu-daemon
 uwu-daemon install --domain code.example.com --email you@email.com
 ```
+
+## Docker Deployment (Optional)
+
+If you want containerized deployment, use the Docker installer script.
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/vidwadeseram/uwu-my-opencode/main/scripts/install-docker.sh)
+```
+
+This keeps the existing native installer untouched. Use native install when RAM is tight; use Docker when you prefer container operations.
+
+After first run:
+
+1. Edit config values in `~/.env.docker` (especially credentials).
+2. Restart with:
+
+```bash
+docker compose --env-file "$HOME/uwu-my-opencode/.env.docker" -f "$HOME/uwu-my-opencode/docker-compose.yml" up -d --build
+```
+
+Default local endpoints in Docker mode:
+
+- Daemon API: `http://127.0.0.1:18080/health`
+- Terminal: `http://127.0.0.1:7681`
+
+If you need domain + TLS for Docker mode, place nginx/caddy/traefik in front and proxy to container port `18080` (and `7681` for terminal access).
+
+If your user is not in the `docker` group yet, run Docker commands with `sudo`.
 
 ## Manual Deployment (Namecheap Domain + VPS)
 

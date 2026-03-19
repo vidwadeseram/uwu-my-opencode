@@ -1,0 +1,27 @@
+services:
+  uwu-daemon:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: uwu-my-opencode
+    restart: unless-stopped
+    environment:
+      UWU_EXECUTE_COMMANDS: ${UWU_EXECUTE_COMMANDS:-true}
+      UWU_SKIP_DOTFILES_BOOTSTRAP: ${UWU_SKIP_DOTFILES_BOOTSTRAP:-true}
+      UWU_HOST: ${UWU_HOST:-0.0.0.0}
+      UWU_PORT: ${UWU_PORT:-18080}
+      UWU_WORKSPACE_ROOT: ${UWU_WORKSPACE_ROOT:-/data/workspaces}
+      UWU_STATE_FILE: ${UWU_STATE_FILE:-/data/state/state.json}
+      UWU_PORT_RANGE_START: ${UWU_PORT_RANGE_START:-4100}
+      UWU_PORT_RANGE_END: ${UWU_PORT_RANGE_END:-4999}
+      UWU_TTYD_PORT_START: ${UWU_TTYD_PORT_START:-7681}
+      UWU_TTYD_USER: ${UWU_TTYD_USER:-admin}
+      UWU_TTYD_PASS: ${UWU_TTYD_PASS:-admin}
+    ports:
+      - "${UWU_PORT:-18080}:${UWU_PORT:-18080}"
+      - "${UWU_TTYD_PORT_START:-7681}:${UWU_TTYD_PORT_START:-7681}"
+    volumes:
+      - uwu-data:/data
+
+volumes:
+  uwu-data:

@@ -27,3 +27,4 @@ build
 tmp-workspaces/
 state.json
 workspaces/
+.env.docker

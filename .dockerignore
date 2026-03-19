@@ -1,0 +1,11 @@
+.git
+**/.git
+**/.DS_Store
+**/node_modules
+daemon/target
+daemon/tmp-workspaces
+build
+target
+workspaces
+state.json
+.tmp-state.json

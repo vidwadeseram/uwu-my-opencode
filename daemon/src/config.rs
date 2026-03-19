@@ -81,11 +81,15 @@ pub struct AppConfig {
     pub opencode_repo: PathBuf,
     pub oh_my_opencode_repo: PathBuf,
     pub execute_commands: bool,
+    pub skip_dotfiles_bootstrap: bool,
 }
 
 impl AppConfig {
     pub fn from_cli(cli: &Cli) -> Self {
         let execute_commands = std::env::var("UWU_EXECUTE_COMMANDS")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+        let skip_dotfiles_bootstrap = std::env::var("UWU_SKIP_DOTFILES_BOOTSTRAP")
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false);
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -120,6 +124,7 @@ impl AppConfig {
             opencode_repo,
             oh_my_opencode_repo,
             execute_commands,
+            skip_dotfiles_bootstrap,
         }
     }
 }
