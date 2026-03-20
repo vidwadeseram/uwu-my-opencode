@@ -40,10 +40,27 @@ fn run(label: &str, prog: &str, args: &[&str]) -> bool {
     }
 }
 
+fn is_root() -> bool {
+    matches!(std::env::var("EUID").ok().as_deref(), Some("0"))
+        || matches!(std::env::var("USER").ok().as_deref(), Some("root"))
+}
+
 fn run_sudo(label: &str, args: &[&str]) -> bool {
     println!("[uwu] {}", label);
-    let status = Command::new("sudo")
-        .args(args)
+    if args.is_empty() {
+        eprintln!("[uwu] sudo command failed: empty args");
+        return false;
+    }
+    let mut cmd = if is_root() {
+        let mut cmd = Command::new(args[0]);
+        cmd.args(&args[1..]);
+        cmd
+    } else {
+        let mut cmd = Command::new("sudo");
+        cmd.args(args);
+        cmd
+    };
+    let status = cmd
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .status();
@@ -57,6 +74,9 @@ fn run_sudo(label: &str, args: &[&str]) -> bool {
 }
 
 fn write_file_sudo(path: &str, content: &str) -> bool {
+    if is_root() {
+        return std::fs::write(path, content).is_ok();
+    }
     let child = Command::new("sudo")
         .args(["tee", path])
         .stdin(Stdio::piped())
