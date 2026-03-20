@@ -134,6 +134,7 @@ pub fn run_install(
             "git",
             "gh",
             "curl",
+            "jq",
             "build-essential",
             "nginx",
             "certbot",
@@ -311,6 +312,17 @@ pub fn run_install(
         "installing oh-my-opencode deps",
         &bun_bin,
         &["install", "--cwd", &omo_dir],
+    );
+
+    let oac_install_dir = format!("{home}/.config/opencode");
+    let oac_install_script = format!(
+        "OPENCODE_INSTALL_DIR=\"{}\" curl -fsSL https://raw.githubusercontent.com/darrenhinde/OpenAgentsControl/main/install.sh | bash -s developer",
+        oac_install_dir
+    );
+    run(
+        "installing OpenAgentsControl (developer profile)",
+        "bash",
+        &["-lc", &oac_install_script],
     );
 
     let opencode_wrapper = format!("{}/scripts/run-opencode.sh", install_str);
