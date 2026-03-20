@@ -410,28 +410,8 @@ pub fn run_install(
     run_sudo("reloading systemd", &["systemctl", "daemon-reload"]);
     run_sudo("enabling service", &["systemctl", "enable", "uwu-daemon"]);
 
-    let htpasswd_content = {
-        let hash_output = std::process::Command::new("openssl")
-            .args(["passwd", "-apr1", &ttyd_pass])
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_default();
-        if hash_output.is_empty() {
-            format!("{}:{{{}}}", ttyd_user, ttyd_pass)
-        } else {
-            format!("{}:{}", ttyd_user, hash_output)
-        }
-    };
-    write_file_sudo("/etc/nginx/.htpasswd", &htpasswd_content);
-    run_sudo(
-        "setting htpasswd ownership for nginx",
-        &["chown", "root:www-data", "/etc/nginx/.htpasswd"],
-    );
-
     let nginx_conf = format!(
-        "server {{\n    listen 80;\n    server_name {};\n\n    auth_basic \"uwu workspace\";\n    auth_basic_user_file /etc/nginx/.htpasswd;\n\n    location = /terminal/7681/ {{\n        proxy_pass http://127.0.0.1:7681/;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection \"upgrade\";\n        proxy_read_timeout 86400;\n    }}\n\n    location ~ \"^/terminal/([0-9]{{2,5}})/?$\" {{\n        set $terminal_upstream 127.0.0.1:$1;\n        proxy_pass http://$terminal_upstream/;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection \"upgrade\";\n        proxy_read_timeout 86400;\n    }}\n\n    location /terminal/ {{\n        proxy_pass http://127.0.0.1:7681/;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection \"upgrade\";\n        proxy_read_timeout 86400;\n    }}\n\n    location / {{\n        proxy_pass http://127.0.0.1:18080;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n    }}\n}}\n",
+        "server {{\n    listen 80;\n    server_name {};\n\n    location = /terminal/7681/ {{\n        proxy_pass http://127.0.0.1:7681/;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection \"upgrade\";\n        proxy_read_timeout 86400;\n    }}\n\n    location ~ \"^/terminal/([0-9]{{2,5}})/?$\" {{\n        set $terminal_upstream 127.0.0.1:$1;\n        proxy_pass http://$terminal_upstream/;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection \"upgrade\";\n        proxy_read_timeout 86400;\n    }}\n\n    location /terminal/ {{\n        proxy_pass http://127.0.0.1:7681/;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection \"upgrade\";\n        proxy_read_timeout 86400;\n    }}\n\n    location / {{\n        proxy_pass http://127.0.0.1:18080;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n    }}\n}}\n",
         domain
     );
     write_file_sudo("/etc/nginx/sites-available/uwu-my-opencode", &nginx_conf);
