@@ -20,6 +20,7 @@ Self-hosted browser access to a persistent tmux workspace running forked `openco
 - `tmux/` — forked tmux (tracked as submodule)
 - `opencode/` — forked opencode (tracked as submodule)
 - `oh-my-opencode/` — forked plugin (tracked as submodule)
+- `openagentscontrol/` — OpenAgentsControl (tracked as submodule)
 
 ## Local Run
 
@@ -63,8 +64,8 @@ You can also pass flags to skip prompts:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/vidwadeseram/uwu-my-opencode/main/scripts/install.sh) \
-  --domain code.example.com \
-  --email you@email.com \
+  --domain code.vidwadeseram.com \
+  --email vidwadeseram2002gmail.com \
   --ttyd-user admin \
   --ttyd-pass admin
 ```
