@@ -218,6 +218,16 @@ pub fn run_install(
         &["bash", "-lc", nerd_ttyd_install_script],
     );
 
+
+    // Fix Vultr serial console issue - disable serial-getty on ttyS1
+    run_sudo(
+        "disabling serial-getty on ttyS1 (fixes Vultr console)",
+        &["systemctl", "stop", "serial-getty@ttyS1.service"],
+    );
+    run_sudo(
+        "masking serial-getty on ttyS1",
+        &["systemctl", "mask", "serial-getty@ttyS1.service"],
+    );
     let has_bun = Command::new("bash")
         .args(["-c", "command -v bun"])
         .stdout(Stdio::null())
@@ -443,6 +453,17 @@ pub fn run_install(
         run_sudo("enabling firewall", &["ufw", "--force", "enable"]);
     }
 
+
+    // Kill any stray ttyd processes before starting daemon
+    run_sudo(
+        "cleaning up old ttyd processes",
+        &["bash", "-c", "pkill -9 ttyd || true"],
+    );
+    // Stop daemon if already running (for re-installations)
+    run_sudo(
+        "stopping existing daemon",
+        &["systemctl", "stop", "uwu-daemon"],
+    );
     run_sudo("starting daemon", &["systemctl", "start", "uwu-daemon"]);
 
     if !skip_ssl {
