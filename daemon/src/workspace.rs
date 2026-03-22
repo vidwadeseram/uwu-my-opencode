@@ -6,6 +6,7 @@ use std::process::Stdio;
 use tracing::{info, warn};
 
 const TEMPLATE_CONTENT: &str = include_str!("../assets/TEMPLATE.md");
+const SETUP_CONTENT: &str = include_str!("../assets/SETUP.md");
 
 pub struct WorkspaceManager {
     config: AppConfig,
@@ -324,12 +325,17 @@ impl WorkspaceManager {
         let plugins_dir = opencode_dir.join("plugins");
         let commands_dir = opencode_dir.join("command");
         let template_file = dir.join("TEMPLATE.md");
+        let setup_file = dir.join("SETUP.md");
 
         tokio::fs::create_dir_all(&plugins_dir).await?;
         tokio::fs::create_dir_all(&commands_dir).await?;
 
         if !tokio::fs::try_exists(&template_file).await? {
             tokio::fs::write(&template_file, TEMPLATE_CONTENT).await?;
+        }
+
+        if !tokio::fs::try_exists(&setup_file).await? {
+            tokio::fs::write(&setup_file, SETUP_CONTENT).await?;
         }
 
         let oh_my_src = self
