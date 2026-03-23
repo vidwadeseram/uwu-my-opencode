@@ -549,3 +549,23 @@ Format:
 ---
 
 *Template generated for Marx POS comprehensive testing*
+
+## HTML Regression Reports
+- Run-folder naming: `logs/{date}{time}/`
+- Run-folder schema (minimum required):
+  - `index.html` (primary HTML regression report page)
+  - `manifest.json` (run metadata and artifact index)
+  - `screenshots/` (all captured screenshots)
+  - `video/` (full regression video recording)
+- Artifacts definitions:
+  - `index.html`
+  - `manifest.json`
+  - `screenshots/*.png`
+  - `video/*.mp4`
+- Server-open behavior:
+  - Reports are served through the existing reports route (no standalone server).
+  - A visible Reports button should open the reports index and allow opening each run page.
+- HTML surface requirements:
+  - `index.html` must show run metadata from `manifest.json`.
+  - `index.html` must show screenshot entries and a playable video section.
+  - If screenshots or video are missing, render an explicit warning state in the page.
