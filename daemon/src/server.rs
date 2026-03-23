@@ -334,6 +334,11 @@ async fn create_workspace(
         .create_workspace(&req.name, &ctx.config.workspace_root)
         .await?;
 
+    tokio::fs::create_dir_all(&ws.path).await?;
+
+    let manager = WorkspaceManager::new(ctx.config.clone(), ctx.supervisor.clone());
+    manager.setup_workspace_opencode_files(&ws.path).await?;
+
     Ok((StatusCode::CREATED, Json(WorkspaceResponse::from(&ws))))
 }
 

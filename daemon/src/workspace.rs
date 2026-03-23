@@ -320,7 +320,7 @@ impl WorkspaceManager {
         format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
     }
 
-    async fn setup_workspace_opencode_files(&self, dir: &Path) -> Result<(), AppError> {
+    pub async fn setup_workspace_opencode_files(&self, dir: &Path) -> Result<(), AppError> {
         let opencode_dir = dir.join(".opencode");
         let plugins_dir = opencode_dir.join("plugins");
         let commands_dir = opencode_dir.join("command");
@@ -353,20 +353,26 @@ impl WorkspaceManager {
         );
         tokio::fs::write(plugin_file, plugin_content).await?;
 
-        let oac_src = self
-            .config
-            .openagentscontrol_repo
-            .join("src")
-            .join("index.ts")
-            .to_string_lossy()
-            .to_string();
-
-        let oac_plugin_file = plugins_dir.join("openagentscontrol.ts");
-        let oac_plugin_content = format!(
-            "import OpenAgentsControl from \"{}\";\nexport default OpenAgentsControl;\n",
-            oac_src.replace('\\', "\\\\")
-        );
-        tokio::fs::write(oac_plugin_file, oac_plugin_content).await?;
+        let oac_opencode_dir = self.config.openagentscontrol_repo.join(".opencode");
+        if oac_opencode_dir.exists() {
+            let dirs_to_copy = [
+                "agent", "command", "skill", "context", "tool", "prompts", "profiles",
+            ];
+            for dir_name in &dirs_to_copy {
+                let src_dir = oac_opencode_dir.join(dir_name);
+                if src_dir.exists() {
+                    let dest_dir = opencode_dir.join(dir_name);
+                    if let Err(e) = Self::copy_dir_recursive(&src_dir, &dest_dir).await {
+                        warn!(
+                            src = %src_dir.display(),
+                            dest = %dest_dir.display(),
+                            error = %e,
+                            "failed to copy OpenAgentsControl directory"
+                        );
+                    }
+                }
+            }
+        }
 
         let host_project_file = commands_dir.join("host-project.md");
         let host_project_content = r#"---

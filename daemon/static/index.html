@@ -364,6 +364,7 @@
         <a class="button commander" href="/commander">Commander</a>
         <a class="button" href="/terminal/" target="_blank" rel="noreferrer">Connect to Terminal</a>
         <a class="button logout" href="/logout">Logout</a>
+        <button id="newWorkspaceBtn" class="button" type="button">New Workspace</button>
       </div>
     </nav>
 
@@ -422,6 +423,56 @@
     const passwordForm = document.getElementById("passwordForm");
     const passwordMessage = document.getElementById("passwordMessage");
     const versionText = document.getElementById("versionText");
+    function getNextWorkspaceName() {
+      // derive next workspace name as workspace-N where N is max existing + 1
+      let max = 0;
+      if (state.workspaces && Array.isArray(state.workspaces)) {
+        for (const ws of state.workspaces) {
+          if (ws?.name) {
+            const m = ws.name.match(/^workspace-(\d+)$/);
+            if (m) {
+              const n = parseInt(m[1], 10);
+              if (Number.isFinite(n)) max = Math.max(max, n);
+            }
+          }
+        }
+      }
+      return `workspace-${max + 1}`;
+    }
+    const newWorkspaceBtn = document.getElementById("newWorkspaceBtn");
+    if (newWorkspaceBtn) {
+      newWorkspaceBtn.addEventListener("click", async () => {
+        const defaultName = getNextWorkspaceName();
+        const input = window.prompt("Enter new workspace name", defaultName);
+        if (input === null) return;
+        const name = input ? input.trim() : "";
+        if (!name) {
+          setGlobalError("Workspace name cannot be empty");
+          return;
+        }
+        newWorkspaceBtn.disabled = true;
+        newWorkspaceBtn.textContent = "Creating...";
+        try {
+          await fetchJson("/api/workspaces", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          });
+          // Refresh only the workspaces list to reflect the new entry
+          const updatedWorkspaces = await fetchJson("/api/workspaces");
+          state.workspaces = updatedWorkspaces;
+          render();
+          // Show success message
+          topError.className = "success";
+          topError.textContent = `Workspace "${name}" created.`;
+        } catch (err) {
+          setGlobalError(`Create workspace failed: ${err.message}`);
+        } finally {
+          newWorkspaceBtn.disabled = false;
+          newWorkspaceBtn.textContent = "New Workspace";
+        }
+      });
+    }
 
     function formatNumber(value, suffix) {
       if (value === null || value === undefined || Number.isNaN(value)) {
