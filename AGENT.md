@@ -27,6 +27,14 @@ Current daemon behavior differs from some planned sections below:
 
 Treat README as the source of truth for deploy/run commands. This file still contains roadmap architecture notes that are partially future-state.
 
+### Dashboard Button Contract (Current)
+
+- `Start` in Running Projects must create/reuse tmux session `<workspace-name>`.
+- `Stop` must kill tmux session `<workspace-name>` for that workspace runtime.
+- `TMUX Test Log` must capture from tmux session `<workspace-name>` only.
+- `Publish Frontends` must publish ports declared in `.opencode/frontends.json`.
+- Workspace scaffolding must include `scripts/publish-frontends.sh` for newly created workspaces.
+
 **One-liner**: A self-hosted, browser-accessible AI coding workspace with live preview tunnels.
 
 ### The Problem It Solves

@@ -10,6 +10,10 @@
 - tmux/opencode/oh-my-opencode are tracked as submodules in this repo
 - forked tmux adds `protected-pane` option (prevents kill, auto-respawn)
 - daemon launches OpenCode from local fork source (`opencode/packages/opencode/src/index.ts`)
+- Running Projects `Start`/`Stop` maps to tmux session lifecycle for session `<workspace-name>`
+- TMUX Test Log captures panes from `<workspace-name>` session only
+- frontend publish framework is manifest-driven via `.opencode/frontends.json` + `scripts/publish-frontends.sh`
+- new workspaces are scaffolded with `scripts/dev-tmux-session.sh`, `scripts/publish-frontends.sh`, `scripts/tmux-test-log.sh`
 - Linux startup bootstraps missing configs:
   - tmux/nvim from `vidwadeseram/dotfiles`
   - Oh My Zsh with zsh-autosuggestions, zsh-syntax-highlighting, zsh-completions

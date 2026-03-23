@@ -18,6 +18,22 @@ Self-hosted browser access to a persistent tmux workspace running forked `openco
 - Installer provisions `cloudflared` so hosted frontend publishing is available immediately.
 - ttyd auth is enabled: `admin` / `admin`.
 
+## Running Projects Contract
+
+This is the agent-facing contract for the dashboard `Start`, `Stop`, `Publish Frontends`, and `TMUX Test Log` buttons.
+
+- `Start` creates or reuses a tmux session named exactly as the workspace folder (example: workspace `test` -> session `test`).
+- `Stop` stops ttyd for that workspace and kills the workspace tmux session.
+- `Publish Frontends` reads `.opencode/frontends.json` and publishes each declared port.
+- `TMUX Test Log` captures panes from the workspace-named tmux session only and writes logs under `logs/tmux/`.
+- New workspaces are scaffolded with:
+  - `scripts/dev-tmux-session.sh`
+  - `scripts/publish-frontends.sh`
+  - `scripts/tmux-test-log.sh`
+  - `.opencode/frontends.json`
+
+If hosted URLs are missing after start, run `Publish Frontends` after frontend processes are listening on the declared ports.
+
 ## Repository Layout
 
 - `daemon/` — Rust supervisor and bootstrap logic

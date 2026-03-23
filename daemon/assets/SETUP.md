@@ -161,6 +161,13 @@ When a project is started from the dashboard:
 3. Dashboard exposes clickable URLs:
    - frontend URLs from active preview tunnels (multiple supported)
 
+Button semantics:
+
+- `Start` -> ensure tmux session `<workspace-name>` exists.
+- `Stop` -> stop ttyd for the workspace and kill tmux session `<workspace-name>`.
+- `Publish Frontends` -> publish all ports declared in `.opencode/frontends.json`.
+- `TMUX Test Log` -> capture from tmux session `<workspace-name>` only.
+
 When a project is stopped from the dashboard:
 
 - The daemon stops ttyd and kills tmux session `<workspace-name>`.
@@ -226,6 +233,17 @@ The script should produce files like:
 From the dashboard, `TMUX Test Log` triggers the same flow through daemon APIs and returns the exact log path.
 
 The log capture session must be named exactly as the workspace folder.
+
+## New workspace scaffolding contract
+
+When a workspace is created through daemon APIs, these files must be present:
+
+- `scripts/dev-tmux-session.sh`
+- `scripts/publish-frontends.sh`
+- `scripts/tmux-test-log.sh`
+- `.opencode/frontends.json`
+
+Agents should treat these files as the default automation framework for run/publish/log tasks.
 
 ## Optional: lazygit session
 
