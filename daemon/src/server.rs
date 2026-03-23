@@ -12,7 +12,7 @@ use axum::{
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::path::{Path as StdPath, PathBuf};
 use std::process::Stdio;
 use tokio::process::Command;
@@ -654,11 +654,24 @@ async fn workspace_response_with_links(
 ) -> WorkspaceResponse {
     let tunnels = ctx.state.list_tunnels(&ws.id).await;
     let declared_ports = declared_frontend_ports(&ws.path).await;
-    let preview_urls = build_preview_links(&tunnels, &declared_ports);
+    let show_hosted_urls = ws.status == WorkspaceStatus::Running;
+    let preview_urls = build_preview_links(&tunnels, &declared_ports)
+        .into_iter()
+        .map(|mut link| {
+            if !show_hosted_urls {
+                link.public_url = None;
+            }
+            link
+        })
+        .collect();
 
     let mut response = WorkspaceResponse::from(ws);
     response.preview_urls = preview_urls;
-    response.browser_url = tunnels.iter().rev().find_map(|t| t.tunnel_url.clone());
+    response.browser_url = if show_hosted_urls {
+        tunnels.iter().rev().find_map(|t| t.tunnel_url.clone())
+    } else {
+        None
+    };
     response
 }
 
@@ -672,19 +685,15 @@ async fn publish_declared_frontends(
     }
 
     let existing_tunnels = ctx.state.list_tunnels(&ws.id).await;
-    let mut existing_ports: HashSet<u16> = existing_tunnels
-        .iter()
-        .map(|item| item.local_port)
-        .collect();
 
     let tunnel_mgr = TunnelManager::new(ctx.config.clone(), ctx.supervisor.clone());
     let mut published = Vec::new();
     let mut skipped = Vec::new();
 
     for port in ports {
-        if existing_ports.contains(&port) {
-            skipped.push(port);
-            continue;
+        if existing_tunnels.iter().any(|item| item.local_port == port) {
+            tunnel_mgr.stop_tunnel(&ws.id, port).await;
+            let _ = ctx.state.remove_tunnel(&ws.id, port).await;
         }
 
         match tunnel_mgr.start_tunnel(&ws.id, port).await {
@@ -695,7 +704,6 @@ async fn publish_declared_frontends(
                     .await
                     .is_ok()
                 {
-                    existing_ports.insert(port);
                     published.push(port);
                 } else {
                     tunnel_mgr.stop_tunnel(&ws.id, port).await;
