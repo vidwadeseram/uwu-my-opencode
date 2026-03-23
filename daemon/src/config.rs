@@ -40,7 +40,11 @@ pub struct Cli {
     #[arg(long, default_value = "../opencode")]
     pub opencode_repo: PathBuf,
 
-    #[arg(long, default_value = "../oh-my-opencode")]
+    #[arg(
+        long,
+        alias = "oh-my-openagent-repo",
+        default_value = "../oh-my-opencode"
+    )]
     pub oh_my_opencode_repo: PathBuf,
 
     #[arg(long, default_value = "../openagentscontrol")]

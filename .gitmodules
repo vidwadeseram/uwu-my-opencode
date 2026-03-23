@@ -6,7 +6,7 @@
 	url = https://github.com/sst/opencode.git
 [submodule "oh-my-opencode"]
 	path = oh-my-opencode
-	url = https://github.com/code-yeongyu/oh-my-opencode.git
+	url = https://github.com/code-yeongyu/oh-my-openagent.git
 [submodule "openagentscontrol"]
 	path = openagentscontrol
 	url = https://github.com/darrenhinde/OpenAgentsControl.git

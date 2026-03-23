@@ -290,6 +290,27 @@ pub fn run_install(
         ],
     );
 
+    let oh_my_opencode_dir = install_dir.join("oh-my-opencode");
+    let oh_my_openagent_dir = install_dir.join("oh-my-openagent");
+    let oh_my_opencode_dir_str = oh_my_opencode_dir.to_string_lossy().to_string();
+    let oh_my_openagent_dir_str = oh_my_openagent_dir.to_string_lossy().to_string();
+
+    if !oh_my_openagent_dir.exists() && oh_my_opencode_dir.exists() {
+        run(
+            "linking oh-my-openagent compatibility path",
+            "ln",
+            &["-sfn", &oh_my_opencode_dir_str, &oh_my_openagent_dir_str],
+        );
+    }
+
+    if !oh_my_opencode_dir.exists() && oh_my_openagent_dir.exists() {
+        run(
+            "linking oh-my-opencode compatibility path",
+            "ln",
+            &["-sfn", &oh_my_openagent_dir_str, &oh_my_opencode_dir_str],
+        );
+    }
+
     let tmux_dir = install_dir.join("tmux");
     let tmux_dir_str = tmux_dir.to_string_lossy().to_string();
     let build_prefix = install_dir.join("build").join("tmux");
@@ -319,10 +340,11 @@ pub fn run_install(
 
     let bun_bin = format!("{home}/.bun/bin/bun");
     let opencode_dir = install_dir.join("opencode").to_string_lossy().to_string();
-    let omo_dir = install_dir
-        .join("oh-my-opencode")
-        .to_string_lossy()
-        .to_string();
+    let omo_dir = if oh_my_openagent_dir.exists() {
+        oh_my_openagent_dir_str.clone()
+    } else {
+        oh_my_opencode_dir_str.clone()
+    };
     run(
         "installing opencode deps",
         &bun_bin,
@@ -338,7 +360,7 @@ pub fn run_install(
         ],
     );
     run(
-        "installing oh-my-opencode deps",
+        "installing oh-my-openagent deps",
         &bun_bin,
         &["install", "--cwd", &omo_dir],
     );

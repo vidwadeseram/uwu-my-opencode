@@ -338,13 +338,21 @@ impl WorkspaceManager {
             tokio::fs::write(&setup_file, SETUP_CONTENT).await?;
         }
 
-        let oh_my_src = self
-            .config
-            .oh_my_opencode_repo
-            .join("src")
-            .join("index.ts")
-            .to_string_lossy()
-            .to_string();
+        let oh_my_repo = self.config.oh_my_opencode_repo.clone();
+        let mut oh_my_src_path = oh_my_repo.join("src").join("index.ts");
+        if !oh_my_src_path.exists() {
+            if let Some(parent) = oh_my_repo.parent() {
+                for candidate_name in ["oh-my-openagent", "oh-my-opencode"] {
+                    let candidate_repo = parent.join(candidate_name);
+                    let candidate_src = candidate_repo.join("src").join("index.ts");
+                    if candidate_src.exists() {
+                        oh_my_src_path = candidate_src;
+                        break;
+                    }
+                }
+            }
+        }
+        let oh_my_src = oh_my_src_path.to_string_lossy().to_string();
 
         let plugin_file = plugins_dir.join("oh-my-opencode.ts");
         let plugin_content = format!(
