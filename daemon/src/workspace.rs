@@ -53,6 +53,14 @@ impl WorkspaceManager {
     }
 
     pub fn tmux_session_name(workspace_name: &str) -> String {
+        workspace_name
+            .trim()
+            .to_lowercase()
+            .replace(' ', "-")
+            .replace('_', "-")
+    }
+
+    fn legacy_tmux_session_name(workspace_name: &str) -> String {
         format!("uwu-{}", workspace_name)
     }
 
@@ -376,6 +384,7 @@ impl WorkspaceManager {
         let scripts_dir = dir.join("scripts");
         let template_file = dir.join("TEMPLATE.md");
         let setup_file = dir.join("SETUP.md");
+        let frontends_manifest_file = opencode_dir.join("frontends.json");
 
         tokio::fs::create_dir_all(&plugins_dir).await?;
         tokio::fs::create_dir_all(&commands_dir).await?;
@@ -387,6 +396,20 @@ impl WorkspaceManager {
 
         if !tokio::fs::try_exists(&setup_file).await? {
             tokio::fs::write(&setup_file, SETUP_CONTENT).await?;
+        }
+
+        if !tokio::fs::try_exists(&frontends_manifest_file).await? {
+            let frontends_manifest = r#"{
+  "frontends": [
+    {
+      "name": "web",
+      "port": 3000,
+      "description": "main frontend"
+    }
+  ]
+}
+"#;
+            tokio::fs::write(&frontends_manifest_file, frontends_manifest).await?;
         }
 
         let oh_my_repo = self.config.oh_my_opencode_repo.clone();
@@ -590,6 +613,27 @@ Output format:
 "#;
         tokio::fs::write(run_project_file, run_project_content).await?;
 
+        let publish_frontends_file = commands_dir.join("publish-frontends.md");
+        let publish_frontends_content = r#"---
+description: publish configured frontend ports and return clickable hosted URLs
+subtask: false
+---
+
+Publish hosted frontend links for this workspace.
+
+Framework:
+- Source of truth is `.opencode/frontends.json`.
+- Each entry must include a `port` number.
+- Use `./scripts/publish-frontends.sh` to publish all configured ports.
+
+Required output:
+1) Ports discovered from manifest
+2) Hosted URLs created (if cloudflared is available)
+3) Local fallback URLs per port
+4) Any ports skipped and why
+"#;
+        tokio::fs::write(publish_frontends_file, publish_frontends_content).await?;
+
         let tmux_test_log_file = commands_dir.join("tmux-test-log.md");
         let tmux_test_log_content = r#"---
 description: create tmux test logs for this workspace and list saved files
@@ -601,7 +645,7 @@ Create a reproducible tmux test log for this workspace.
 Rules:
 - Prefer using the workspace script: `./scripts/tmux-test-log.sh`.
 - If missing, fall back to `tmux capture-pane` commands and write logs under `logs/tmux/`.
-- Include all active tmux sessions rooted in this workspace path.
+- Capture from tmux session named as the workspace.
 - Capture at least the last 2000 lines per window.
 
 Output format:
@@ -612,13 +656,73 @@ Output format:
 "#;
         tokio::fs::write(tmux_test_log_file, tmux_test_log_content).await?;
 
+        let publish_frontends_script = scripts_dir.join("publish-frontends.sh");
+        if !tokio::fs::try_exists(&publish_frontends_script).await? {
+            let script = r###"#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+WS_NAME="$(basename "${ROOT_DIR}")"
+DAEMON_URL="${UWU_DAEMON_URL:-http://127.0.0.1:18080}"
+DAEMON_USER="${UWU_DAEMON_USER:-admin}"
+DAEMON_PASS="${UWU_DAEMON_PASS:-admin}"
+MANIFEST="${ROOT_DIR}/.opencode/frontends.json"
+
+if [[ ! -f "${MANIFEST}" ]]; then
+  echo "missing manifest: ${MANIFEST}" >&2
+  exit 1
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is required to parse ${MANIFEST}" >&2
+  exit 1
+fi
+
+PORTS="$(python3 - "${MANIFEST}" <<'PY'
+import json,sys
+path=sys.argv[1]
+with open(path, 'r', encoding='utf-8') as f:
+    data=json.load(f)
+ports=[]
+for item in data.get('frontends', []):
+    port=item.get('port')
+    if isinstance(port, int) and port > 0:
+        ports.append(str(port))
+print(' '.join(sorted(set(ports), key=lambda x:int(x))))
+PY
+)"
+
+if [[ -z "${PORTS}" ]]; then
+  echo "no frontend ports found in ${MANIFEST}" >&2
+  exit 1
+fi
+
+for port in ${PORTS}; do
+  echo "publishing port ${port} for workspace ${WS_NAME}"
+  curl -fsSL -u "${DAEMON_USER}:${DAEMON_PASS}" \
+    -H "content-type: application/json" \
+    -X POST "${DAEMON_URL}/api/workspaces/${WS_NAME}/previews" \
+    -d "{\"port\":${port}}"
+  echo
+done
+
+echo "done. check links in dashboard Running Projects." 
+"###;
+            tokio::fs::write(&publish_frontends_script, script).await?;
+            let publish_frontends_script_str =
+                publish_frontends_script.to_string_lossy().to_string();
+            let _ = self
+                .run_cmd(&["chmod", "+x", &publish_frontends_script_str])
+                .await;
+        }
+
         let dev_tmux_script = scripts_dir.join("dev-tmux-session.sh");
         if !tokio::fs::try_exists(&dev_tmux_script).await? {
             let script = r###"#!/usr/bin/env bash
 set -euo pipefail
 
-SESSION_NAME="${MYAPP_TMUX_SESSION_NAME:-myapp}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SESSION_NAME="${MYAPP_TMUX_SESSION_NAME:-$(basename "${ROOT_DIR}")}"
 
 if ! command -v tmux >/dev/null 2>&1; then
   echo "tmux is not installed" >&2
@@ -646,8 +750,8 @@ echo "attach with: tmux attach -t ${SESSION_NAME}"
             let script = r###"#!/usr/bin/env bash
 set -euo pipefail
 
-SESSION_NAME="${1:-${MYAPP_TMUX_SESSION_NAME:-myapp}}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SESSION_NAME="${1:-${MYAPP_TMUX_SESSION_NAME:-$(basename "${ROOT_DIR}")}}"
 LOG_DIR="${ROOT_DIR}/logs/tmux"
 mkdir -p "${LOG_DIR}"
 
@@ -926,21 +1030,18 @@ echo "created ${OUT}"
 
         let tmux = self.tmux().to_string();
         let default_session = Self::tmux_session_name(workspace_name);
-        let mut session = default_session.clone();
+        let session = default_session.clone();
         let path_str = workspace_path.to_string_lossy().to_string();
         let mut commands = Vec::new();
 
         let setup_script = Self::setup_tmux_script(workspace_path);
         if setup_script.exists() {
+            let session_env = format!("MYAPP_TMUX_SESSION_NAME={}", default_session);
+            let setup_script_str = setup_script.to_string_lossy().to_string();
             commands.push(
-                self.run_cmd(&["bash", &setup_script.to_string_lossy()])
+                self.run_cmd(&["env", &session_env, "bash", &setup_script_str])
                     .await?,
             );
-
-            let setup_sessions = self.tmux_sessions_for_workspace(workspace_path).await?;
-            if let Some(first) = setup_sessions.first() {
-                session = first.clone();
-            }
         }
 
         if session == default_session {
@@ -1056,12 +1157,18 @@ echo "created ${OUT}"
             info!(workspace = %workspace_name, "killed ttyd process");
         }
 
-        let mut sessions: BTreeSet<String> = self
-            .tmux_sessions_for_workspace(workspace_path)
-            .await?
-            .into_iter()
-            .collect();
+        let mut sessions: BTreeSet<String> = BTreeSet::new();
         sessions.insert(Self::tmux_session_name(workspace_name));
+        sessions.insert(Self::legacy_tmux_session_name(workspace_name));
+
+        let rooted_sessions = self.tmux_sessions_for_workspace(workspace_path).await?;
+        for rooted in rooted_sessions {
+            if rooted == Self::tmux_session_name(workspace_name)
+                || rooted == Self::legacy_tmux_session_name(workspace_name)
+            {
+                sessions.insert(rooted);
+            }
+        }
 
         for session in sessions {
             results.push(
@@ -1078,13 +1185,25 @@ echo "created ${OUT}"
         workspace_name: &str,
         workspace_path: &Path,
     ) -> Result<TmuxTestLogResult, AppError> {
-        let mut sessions: BTreeSet<String> = self
-            .tmux_sessions_for_workspace(workspace_path)
-            .await?
-            .into_iter()
-            .collect();
-        sessions.insert(Self::tmux_session_name(workspace_name));
-        let sessions: Vec<String> = sessions.into_iter().collect();
+        let session = Self::tmux_session_name(workspace_name);
+
+        let tmux = self.tmux().to_string();
+        let has_session = tokio::process::Command::new(&tmux)
+            .args(["has-session", "-t", &session])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map_err(|e| AppError::CommandFailed(format!("failed to check tmux session: {}", e)))?;
+
+        if !has_session.success() {
+            return Err(AppError::NotFound(format!(
+                "tmux session '{}' not found; start project first",
+                session
+            )));
+        }
+
+        let sessions: Vec<String> = vec![session.clone()];
 
         let logs_dir = workspace_path.join("logs").join("tmux");
         tokio::fs::create_dir_all(&logs_dir).await?;
@@ -1096,7 +1215,6 @@ echo "created ${OUT}"
         content.push_str(&format!("workspace={}\n", workspace_name));
         content.push_str(&format!("created_at={}\n\n", Utc::now().to_rfc3339()));
 
-        let tmux = self.tmux().to_string();
         for session in &sessions {
             let windows = tokio::process::Command::new(&tmux)
                 .args([

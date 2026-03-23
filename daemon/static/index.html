@@ -362,7 +362,6 @@
       <div class="brand">uwu <span>workspace</span></div>
       <div class="actions">
         <a class="button commander" href="/commander">Commander</a>
-        <a class="button" href="/terminal/" target="_blank" rel="noreferrer">Connect to Terminal</a>
         <a class="button logout" href="/logout">Logout</a>
         <button id="newWorkspaceBtn" class="button" type="button">New Workspace</button>
       </div>
@@ -524,24 +523,21 @@
 
     function renderProjectUrls(project) {
       const rows = [];
-      if (project.terminal_url) {
-        rows.push(`Terminal: <a href="${project.terminal_url}" target="_blank" rel="noreferrer">${project.terminal_url}</a>`);
-      }
 
       const previews = Array.isArray(project.preview_urls) ? project.preview_urls : [];
       for (const preview of previews) {
-        if (preview && preview.public_url) {
-          rows.push(`Frontend (${preview.local_port}): <a href="${preview.public_url}" target="_blank" rel="noreferrer">${preview.public_url}</a>`);
-        } else if (preview && preview.local_url) {
-          rows.push(`Frontend (${preview.local_port}): <a href="${preview.local_url}" target="_blank" rel="noreferrer">${preview.local_url}</a>`);
+        if (preview?.public_url) {
+          rows.push(`Hosted Frontend (${preview.local_port}): <a href="${preview.public_url}" target="_blank" rel="noreferrer">${preview.public_url}</a>`);
+        } else if (preview?.local_url) {
+          rows.push(`Local Frontend (${preview.local_port}): <a href="${preview.local_url}" target="_blank" rel="noreferrer">${preview.local_url}</a>`);
         }
       }
 
       if (!rows.length) {
         if (project.status === "running") {
-          rows.push("No frontend URLs yet. Start your frontend(s), then create previews/tunnels.");
+          rows.push("No frontend URLs yet. Click Publish Frontends after your frontend(s) are running.");
         } else {
-          rows.push("No URLs yet. Start project to create tmux session and terminal link.");
+          rows.push("No frontend URLs yet. Start project, then Publish Frontends.");
         }
       }
 
@@ -602,7 +598,6 @@
               <div class="row"><strong>${ws.name}</strong><span class="status ${ws.status}">${ws.status}</span></div>
               <div class="label">${ws.path}</div>
               <div class="label">Size: ${ws.size_mb !== null && ws.size_mb !== undefined ? `${ws.size_mb} MB` : "unknown"}</div>
-              <div class="label">${ws.terminal_url ? `Terminal: <a href="${ws.terminal_url}" target="_blank" rel="noreferrer">${ws.terminal_url}</a>` : "Terminal: unavailable"}</div>
             </div>`)
           .join("");
       }
@@ -624,7 +619,8 @@
               <div class="actions" style="margin-top:0.65rem;">
                 ${p.status === "running" ? "" : '<button data-action="start">Start</button>'}
                 ${p.status === "running" ? '<button data-action="stop">Stop</button>' : ""}
-                <button data-action="tmux-test-log">Create Test Log</button>
+                <button data-action="publish-frontends">Publish Frontends</button>
+                <button data-action="tmux-test-log">TMUX Test Log</button>
                 <button class="danger" data-action="delete">Delete</button>
               </div>
             </div>`;
@@ -679,6 +675,15 @@
           const sessions = Array.isArray(result.sessions) ? result.sessions.join(", ") : "none";
           setGlobalSuccess(`tmux test log created: ${result.log_file} (sessions: ${sessions})`);
           return;
+        }
+
+        if (action === "publish-frontends") {
+          const result = await fetchJson(`/api/projects/${id}/publish-frontends`, { method: "POST" });
+          await loadDashboard();
+          const published = Array.isArray(result.published_ports) ? result.published_ports.join(", ") : "";
+          const skipped = Array.isArray(result.skipped_ports) ? result.skipped_ports.join(", ") : "";
+          setGlobalSuccess(`frontend publish completed. published: ${published || "none"}; skipped: ${skipped || "none"}`);
+          return;
         } else {
           await fetchJson(`/api/projects/${id}/${action}`, { method: "POST" });
           await loadDashboard();
@@ -693,7 +698,9 @@
           button.disabled = false;
           button.textContent =
             action === "tmux-test-log"
-              ? "Create Test Log"
+              ? "TMUX Test Log"
+              : action === "publish-frontends"
+                ? "Publish Frontends"
               : action.charAt(0).toUpperCase() + action.slice(1);
         }
       }

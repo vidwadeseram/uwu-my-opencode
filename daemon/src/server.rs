@@ -12,12 +12,14 @@ use axum::{
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path as StdPath, PathBuf};
 use std::process::Stdio;
 use tokio::process::Command;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
+use tracing::warn;
 
 use crate::commander::{CaptureResponse, CommanderState, Message, SessionInfo};
 use crate::config::AppConfig;
@@ -89,6 +91,24 @@ pub struct TmuxTestLogResponse {
     pub log_file: String,
 }
 
+#[derive(Serialize)]
+pub struct PublishFrontendsResponse {
+    pub workspace: WorkspaceResponse,
+    pub published_ports: Vec<u16>,
+    pub skipped_ports: Vec<u16>,
+}
+
+#[derive(Deserialize)]
+struct FrontendManifest {
+    #[serde(default)]
+    frontends: Vec<FrontendDefinition>,
+}
+
+#[derive(Deserialize)]
+struct FrontendDefinition {
+    port: u16,
+}
+
 #[derive(Deserialize)]
 pub struct PreviewRequest {
     #[serde(default = "default_preview_port")]
@@ -110,7 +130,7 @@ pub struct PreviewResponse {
 
 impl From<&crate::state::Workspace> for WorkspaceResponse {
     fn from(ws: &crate::state::Workspace) -> Self {
-        let terminal_url = ws.ttyd_port.map(|port| format!("/terminal/{}/", port));
+        let terminal_url = None;
 
         Self {
             id: ws.id.clone(),
@@ -191,6 +211,10 @@ pub fn create_router(ctx: AppContext) -> Router {
         .route("/api/workspaces/{id}/start", post(start_workspace))
         .route("/api/workspaces/{id}/stop", post(stop_workspace))
         .route(
+            "/api/workspaces/{id}/publish-frontends",
+            post(publish_frontends),
+        )
+        .route(
             "/api/workspaces/{id}/previews",
             get(list_previews)
                 .post(create_preview)
@@ -199,6 +223,10 @@ pub fn create_router(ctx: AppContext) -> Router {
         .route("/api/projects", get(list_workspaces))
         .route("/api/projects/{id}/start", post(start_workspace))
         .route("/api/projects/{id}/stop", post(stop_workspace))
+        .route(
+            "/api/projects/{id}/publish-frontends",
+            post(publish_frontends),
+        )
         .route(
             "/api/projects/{id}/tmux-test-log",
             post(create_tmux_test_log),
@@ -281,18 +309,8 @@ async fn list_workspaces(
     let mut responses = Vec::with_capacity(workspaces.len());
 
     for ws in &workspaces {
-        let mut response = WorkspaceResponse::from(ws);
+        let mut response = workspace_response_with_links(&ctx, ws).await;
         response.size_mb = Some(directory_size_bytes(&ws.path).await / (1024 * 1024));
-        let tunnels = ctx.state.list_tunnels(&ws.id).await;
-        response.preview_urls = tunnels
-            .iter()
-            .map(|t| PreviewLink {
-                local_port: t.local_port,
-                local_url: format!("http://127.0.0.1:{}", t.local_port),
-                public_url: t.tunnel_url.clone(),
-            })
-            .collect();
-        response.browser_url = tunnels.iter().rev().find_map(|t| t.tunnel_url.clone());
         responses.push(response);
     }
 
@@ -396,8 +414,11 @@ async fn start_workspace(
         .update_workspace_status(&id, WorkspaceStatus::Running)
         .await?;
 
+    let _ = publish_declared_frontends(&ctx, &ws).await;
+    let workspace = workspace_response_with_links(&ctx, &ws).await;
+
     Ok(Json(StartWorkspaceResponse {
-        workspace: WorkspaceResponse::from(&ws),
+        workspace,
         commands: result.commands,
         browser_url: result.browser_url,
     }))
@@ -415,20 +436,21 @@ async fn stop_workspace(
     let manager = WorkspaceManager::new(ctx.config.clone(), ctx.supervisor.clone());
     let commands = manager.stop_workspace(&ws.name, &ws.path).await?;
 
-    let tunnels = ctx.state.list_tunnels(&id).await;
+    let tunnels = ctx.state.list_tunnels(&ws.id).await;
     let tunnel_mgr = TunnelManager::new(ctx.config.clone(), ctx.supervisor.clone());
     for t in &tunnels {
-        tunnel_mgr.stop_tunnel(&id, t.local_port).await;
+        tunnel_mgr.stop_tunnel(&ws.id, t.local_port).await;
     }
-    ctx.state.remove_all_tunnels_for_workspace(&id).await;
+    ctx.state.remove_all_tunnels_for_workspace(&ws.id).await;
 
     let ws = ctx
         .state
         .update_workspace_status(&id, WorkspaceStatus::Stopped)
         .await?;
+    let workspace = workspace_response_with_links(&ctx, &ws).await;
 
     Ok(Json(StopWorkspaceResponse {
-        workspace: WorkspaceResponse::from(&ws),
+        workspace,
         commands,
     }))
 }
@@ -446,10 +468,10 @@ async fn delete_workspace(
         let manager = WorkspaceManager::new(ctx.config.clone(), ctx.supervisor.clone());
         let _ = manager.stop_workspace(&ws.name, &ws.path).await;
 
-        let tunnels = ctx.state.list_tunnels(&id).await;
+        let tunnels = ctx.state.list_tunnels(&ws.id).await;
         let tunnel_mgr = TunnelManager::new(ctx.config.clone(), ctx.supervisor.clone());
         for t in &tunnels {
-            tunnel_mgr.stop_tunnel(&id, t.local_port).await;
+            tunnel_mgr.stop_tunnel(&ws.id, t.local_port).await;
         }
     }
 
@@ -474,22 +496,31 @@ async fn create_tmux_test_log(
     let manager = WorkspaceManager::new(ctx.config.clone(), ctx.supervisor.clone());
     let result = manager.create_tmux_test_log(&ws.name, &ws.path).await?;
 
-    let mut workspace = WorkspaceResponse::from(&ws);
-    let tunnels = ctx.state.list_tunnels(&ws.id).await;
-    workspace.preview_urls = tunnels
-        .iter()
-        .map(|t| PreviewLink {
-            local_port: t.local_port,
-            local_url: format!("http://127.0.0.1:{}", t.local_port),
-            public_url: t.tunnel_url.clone(),
-        })
-        .collect();
-    workspace.browser_url = tunnels.iter().rev().find_map(|t| t.tunnel_url.clone());
+    let workspace = workspace_response_with_links(&ctx, &ws).await;
 
     Ok(Json(TmuxTestLogResponse {
         workspace,
         sessions: result.sessions,
         log_file: result.log_file,
+    }))
+}
+
+async fn publish_frontends(
+    State(ctx): State<AppContext>,
+    Path(id): Path<String>,
+) -> Result<Json<PublishFrontendsResponse>, AppError> {
+    sync_state_with_workspace_dirs(&ctx).await?;
+    let ws = resolve_workspace_by_id_or_name(&ctx, &id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("workspace '{id}' not found")))?;
+
+    let (published_ports, skipped_ports) = publish_declared_frontends(&ctx, &ws).await;
+    let workspace = workspace_response_with_links(&ctx, &ws).await;
+
+    Ok(Json(PublishFrontendsResponse {
+        workspace,
+        published_ports,
+        skipped_ports,
     }))
 }
 
@@ -568,6 +599,117 @@ async fn resolve_workspace_by_id_or_name(
         return Ok(Some(ws));
     }
     Ok(None)
+}
+
+fn frontends_manifest_path(workspace_path: &StdPath) -> PathBuf {
+    workspace_path.join(".opencode").join("frontends.json")
+}
+
+async fn declared_frontend_ports(workspace_path: &StdPath) -> Vec<u16> {
+    let manifest_path = frontends_manifest_path(workspace_path);
+    let Ok(raw) = tokio::fs::read_to_string(manifest_path).await else {
+        return Vec::new();
+    };
+    let Ok(manifest) = serde_json::from_str::<FrontendManifest>(&raw) else {
+        return Vec::new();
+    };
+
+    let mut ports: Vec<u16> = manifest
+        .frontends
+        .into_iter()
+        .map(|item| item.port)
+        .filter(|port| *port != 0)
+        .collect();
+    ports.sort_unstable();
+    ports.dedup();
+    ports
+}
+
+fn build_preview_links(
+    tunnels: &[crate::state::Tunnel],
+    declared_ports: &[u16],
+) -> Vec<PreviewLink> {
+    let mut by_port: BTreeMap<u16, Option<String>> = BTreeMap::new();
+
+    for port in declared_ports {
+        by_port.entry(*port).or_insert(None);
+    }
+    for tunnel in tunnels {
+        by_port.insert(tunnel.local_port, tunnel.tunnel_url.clone());
+    }
+
+    by_port
+        .into_iter()
+        .map(|(port, public_url)| PreviewLink {
+            local_port: port,
+            local_url: format!("http://127.0.0.1:{}", port),
+            public_url,
+        })
+        .collect()
+}
+
+async fn workspace_response_with_links(
+    ctx: &AppContext,
+    ws: &crate::state::Workspace,
+) -> WorkspaceResponse {
+    let tunnels = ctx.state.list_tunnels(&ws.id).await;
+    let declared_ports = declared_frontend_ports(&ws.path).await;
+    let preview_urls = build_preview_links(&tunnels, &declared_ports);
+
+    let mut response = WorkspaceResponse::from(ws);
+    response.preview_urls = preview_urls;
+    response.browser_url = tunnels.iter().rev().find_map(|t| t.tunnel_url.clone());
+    response
+}
+
+async fn publish_declared_frontends(
+    ctx: &AppContext,
+    ws: &crate::state::Workspace,
+) -> (Vec<u16>, Vec<u16>) {
+    let ports = declared_frontend_ports(&ws.path).await;
+    if ports.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+
+    let existing_tunnels = ctx.state.list_tunnels(&ws.id).await;
+    let mut existing_ports: HashSet<u16> = existing_tunnels
+        .iter()
+        .map(|item| item.local_port)
+        .collect();
+
+    let tunnel_mgr = TunnelManager::new(ctx.config.clone(), ctx.supervisor.clone());
+    let mut published = Vec::new();
+    let mut skipped = Vec::new();
+
+    for port in ports {
+        if existing_ports.contains(&port) {
+            skipped.push(port);
+            continue;
+        }
+
+        match tunnel_mgr.start_tunnel(&ws.id, port).await {
+            Ok(result) => {
+                if ctx
+                    .state
+                    .add_tunnel(&ws.id, port, result.tunnel_url.clone())
+                    .await
+                    .is_ok()
+                {
+                    existing_ports.insert(port);
+                    published.push(port);
+                } else {
+                    tunnel_mgr.stop_tunnel(&ws.id, port).await;
+                    skipped.push(port);
+                }
+            }
+            Err(err) => {
+                warn!(workspace = %ws.name, port, error = %err, "failed to publish frontend tunnel");
+                skipped.push(port);
+            }
+        }
+    }
+
+    (published, skipped)
 }
 
 async fn vm_info() -> Result<Json<VmInfoResponse>, AppError> {

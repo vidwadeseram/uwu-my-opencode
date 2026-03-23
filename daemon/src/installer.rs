@@ -218,6 +218,25 @@ pub fn run_install(
         &["bash", "-lc", nerd_ttyd_install_script],
     );
 
+    let has_cloudflared = Command::new("bash")
+        .args(["-lc", "command -v cloudflared"])
+        .stdout(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !has_cloudflared {
+        if !run_sudo(
+            "installing cloudflared (apt package)",
+            &["apt-get", "install", "-y", "-qq", "cloudflared"],
+        ) {
+            let cloudflared_install_script = "set -euo pipefail; arch=$(uname -m); case \"$arch\" in x86_64) bin=cloudflared-linux-amd64 ;; aarch64|arm64) bin=cloudflared-linux-arm64 ;; armv7l) bin=cloudflared-linux-arm ;; *) echo unsupported arch:$arch; exit 1 ;; esac; tmp=/tmp/cloudflared; url=\"https://github.com/cloudflare/cloudflared/releases/latest/download/${bin}\"; curl -fsSL \"$url\" -o \"$tmp\"; install -m 0755 \"$tmp\" /usr/local/bin/cloudflared";
+            run_sudo(
+                "installing cloudflared (github release binary)",
+                &["bash", "-lc", cloudflared_install_script],
+            );
+        }
+    }
+
     // Fix Vultr serial console issue - disable serial-getty on ttyS1
     run_sudo(
         "disabling serial-getty on ttyS1 (fixes Vultr console)",

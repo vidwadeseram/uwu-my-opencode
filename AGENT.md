@@ -13,10 +13,13 @@ Current daemon behavior differs from some planned sections below:
 - `uwu-daemon install --domain <d> --email <e>` provisions a full server from scratch
 - `bash <(curl ... install.sh)` bootstraps Rust then runs the install subcommand
 - startup-centered workflow (no active `/workspaces` UX path)
-- single tmux session (`uwu-main`) with one tab per workspace directory
+- shared tmux session (`uwu-main`) for base tabs + workspace runtime sessions named after each workspace
 - ttyd browser entry with static credentials (`admin`/`admin`)
 - forked OpenCode and forked oh-my-opencode loaded from local submodules
 - forked tmux with `protected-pane` option (prevents kill-pane, auto-respawns on exit)
+- frontend publishing workflow: `.opencode/frontends.json` + `scripts/publish-frontends.sh` + dashboard `Publish Frontends`
+- tmux test log workflow: `scripts/tmux-test-log.sh` and dashboard `TMUX Test Log`
+- installer includes `cloudflared` for hosted preview URLs
 - Linux auto-bootstrap for missing configs:
   - tmux/nvim from `vidwadeseram/dotfiles`
   - Oh My Zsh with autocomplete plugins

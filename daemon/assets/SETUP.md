@@ -85,8 +85,8 @@ Create a script like `scripts/dev-tmux-session.sh` in your project:
 
 set -euo pipefail
 
-SESSION_NAME="${MYAPP_TMUX_SESSION_NAME:-myapp}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SESSION_NAME="${MYAPP_TMUX_SESSION_NAME:-$(basename "${ROOT_DIR}")}"
 
 if ! command -v tmux >/dev/null 2>&1; then
   echo "tmux is not installed. Install tmux and rerun this script." >&2
@@ -141,7 +141,7 @@ From the project root:
 
 ```bash
 ./scripts/dev-tmux-session.sh
-tmux attach -t myapp
+tmux attach -t "$(basename "$PWD")"
 ```
 
 ## Dashboard start/stop contract
@@ -151,26 +151,52 @@ The dashboard "Running Projects" start/stop buttons control tmux sessions direct
 To make this deterministic, keep this contract in each workspace:
 
 - Session bootstrap script: `scripts/dev-tmux-session.sh`
-- Session name env: `MYAPP_TMUX_SESSION_NAME` (default `myapp`)
+- Session name env: `MYAPP_TMUX_SESSION_NAME` (default workspace folder name)
 - Optional frontend tunnels: create one tunnel per frontend port (3000, 3001, 3002, ...)
 
 When a project is started from the dashboard:
 
 1. The daemon runs `bash scripts/dev-tmux-session.sh` if present.
-2. If no session is created by script, daemon falls back to `uwu-<workspace-name>`.
+2. If no session is created by script, daemon falls back to `<workspace-name>`.
 3. Dashboard exposes clickable URLs:
-   - tmux terminal URL: `/terminal/<ttyd-port>/`
    - frontend URLs from active preview tunnels (multiple supported)
 
 When a project is stopped from the dashboard:
 
-- The daemon stops ttyd and kills tmux sessions rooted in the workspace path.
+- The daemon stops ttyd and kills tmux session `<workspace-name>`.
 
 ## Multi-frontend URL workflow
 
-If your project runs multiple frontends (for example on ports 3000, 3001, 3002), create previews/tunnels for each frontend port.
+If your project runs multiple frontends (for example on ports 3000, 3001, 3002), define them in:
 
-The dashboard will render all active frontend links as separate clickable URLs.
+- `.opencode/frontends.json`
+
+Example:
+
+```json
+{
+  "frontends": [
+    { "name": "web", "port": 3000 },
+    { "name": "admin", "port": 3001 },
+    { "name": "docs", "port": 3002 }
+  ]
+}
+```
+
+Then publish from workspace root:
+
+```bash
+./scripts/publish-frontends.sh
+```
+
+Or from dashboard:
+
+- Click `Publish Frontends` in the project card.
+
+The dashboard will render all frontend links as separate clickable URLs:
+
+- Hosted Frontend links when public tunnels are active
+- Local Frontend links as fallback per configured port
 
 Recommended labels in your tmux script:
 
@@ -197,7 +223,9 @@ The script should produce files like:
 
 - `logs/tmux/tmux-test-<session>-<timestamp>.log`
 
-From the dashboard, "Create Test Log" triggers the same flow through daemon APIs and returns the exact log path.
+From the dashboard, `TMUX Test Log` triggers the same flow through daemon APIs and returns the exact log path.
+
+The log capture session must be named exactly as the workspace folder.
 
 ## Optional: lazygit session
 

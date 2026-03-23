@@ -4,15 +4,19 @@ Self-hosted browser access to a persistent tmux workspace running forked `openco
 
 ## Current Behavior
 
-- Daemon starts one tmux session: `uwu-main`
-- Every directory inside `--workspace-root` becomes a tmux tab
-- Each tab auto-launches forked OpenCode from `opencode/packages/opencode/src/index.ts`
+- Daemon keeps a shared `uwu-main` session for base OpenCode tabs and per-workspace runtime sessions for Running Projects.
+- Running Projects `Start`/`Stop` controls tmux sessions named after the workspace (example: workspace `test` -> tmux session `test`).
 - Per-workspace `.opencode` files are generated automatically:
   - plugin loader for forked `oh-my-opencode`
-  - `/host-project` command for project hosting workflow
-- ttyd serves the tmux session at `http://127.0.0.1:7681` by default
-- ttyd auth is enabled: `admin` / `admin`
-- Forked tmux protected pane mode prevents accidental pane kill for OpenCode panes
+  - `/host-project`, `/run-project`, `/tmux-test-log`, and `/publish-frontends` command templates
+  - frontend manifest `.opencode/frontends.json`
+- Per-workspace `scripts` scaffolding is generated automatically:
+  - `scripts/dev-tmux-session.sh`
+  - `scripts/tmux-test-log.sh`
+  - `scripts/publish-frontends.sh`
+- Dashboard exposes frontend links via `Publish Frontends` (hosted links when tunnels are active, local links as fallback).
+- Installer provisions `cloudflared` so hosted frontend publishing is available immediately.
+- ttyd auth is enabled: `admin` / `admin`.
 
 ## Repository Layout
 
@@ -89,6 +93,9 @@ sudo apt install -y git curl build-essential nginx certbot python3-certbot-nginx
 
 # ttyd (Ubuntu package may be old, use package or binary as preferred)
 sudo apt install -y ttyd || true
+
+# cloudflared (for hosted frontend URLs)
+sudo apt install -y cloudflared || true
 
 # bun
 curl -fsSL https://bun.sh/install | bash
