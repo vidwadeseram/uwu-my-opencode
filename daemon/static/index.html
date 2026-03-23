@@ -243,6 +243,31 @@
       transition: width 240ms ease;
     }
 
+    .link-state {
+      margin: 0.45rem 0 0.45rem;
+      border-radius: 8px;
+      padding: 0.42rem 0.58rem;
+      font-size: 0.79rem;
+      border: 1px solid rgba(140, 152, 152, 0.4);
+      background: rgba(17, 20, 20, 0.75);
+      color: var(--muted);
+    }
+
+    .link-state.hosted {
+      border-color: rgba(66, 214, 139, 0.5);
+      color: #b6f2cd;
+    }
+
+    .link-state.local-only {
+      border-color: rgba(245, 217, 123, 0.5);
+      color: #f5df9e;
+    }
+
+    .link-state.offline {
+      border-color: rgba(170, 178, 178, 0.35);
+      color: #b7c0c0;
+    }
+
     button,
     .button {
       background: linear-gradient(145deg, #143437, #132f31);
@@ -526,6 +551,20 @@
       const rows = [];
 
       const previews = Array.isArray(project.preview_urls) ? project.preview_urls : [];
+      const hostedCount = previews.filter((preview) => Boolean(preview?.public_url)).length;
+      const localCount = previews.filter((preview) => Boolean(preview?.local_url)).length;
+
+      let stateBanner = "";
+      if (project.status !== "running") {
+        stateBanner = `<div class="link-state offline">Project is stopped. Start it before expecting hosted frontend links.</div>`;
+      } else if (hostedCount > 0) {
+        stateBanner = `<div class="link-state hosted">Hosted links active: ${hostedCount}/${Math.max(previews.length, hostedCount)} frontend port(s).</div>`;
+      } else if (localCount > 0) {
+        stateBanner = `<div class="link-state local-only">Local-only links detected. Click Publish Frontends to refresh hosted URLs.</div>`;
+      } else {
+        stateBanner = `<div class="link-state local-only">No frontend links yet. Start frontend services, then click Publish Frontends.</div>`;
+      }
+
       for (const preview of previews) {
         if (preview?.public_url) {
           rows.push(`Hosted Frontend (${preview.local_port}): <a href="${preview.public_url}" target="_blank" rel="noreferrer">${preview.public_url}</a>`);
@@ -542,7 +581,7 @@
         }
       }
 
-      return rows.map((row) => `<div class="label">${row}</div>`).join("");
+      return `${stateBanner}${rows.map((row) => `<div class="label">${row}</div>`).join("")}`;
     }
 
     function statusPercent(status) {
