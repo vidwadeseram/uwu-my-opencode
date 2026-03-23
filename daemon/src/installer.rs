@@ -218,7 +218,6 @@ pub fn run_install(
         &["bash", "-lc", nerd_ttyd_install_script],
     );
 
-
     // Fix Vultr serial console issue - disable serial-getty on ttyS1
     run_sudo(
         "disabling serial-getty on ttyS1 (fixes Vultr console)",
@@ -397,7 +396,7 @@ pub fn run_install(
 
     let wrapper = format!("{}/scripts/run-daemon.sh", install_str);
     let wrapper_content = format!(
-        "#!/usr/bin/env bash\nexport PATH=\"{}\"\nexport UWU_EXECUTE_COMMANDS=true\nexec \"{}\" \\\n  --host 127.0.0.1 \\\n  --port 18080 \\\n  --workspace-root \"{}\" \\\n  --state-file \"{}/.config/uwu/state.json\" \\\n  --ttyd-port-start 7681 \\\n  --ttyd-user \"{}\" \\\n  --ttyd-pass \"{}\" \\\n  --tmux-bin \"{}\" \\\n  --opencode-repo \"{}/opencode\" \\\n  --oh-my-opencode-repo \"{}/oh-my-opencode\"\n",
+        "#!/usr/bin/env bash\nexport PATH=\"{}\"\nexport UWU_EXECUTE_COMMANDS=true\nexec \"{}\" \\\n  --host 127.0.0.1 \\\n  --port 18080 \\\n  --workspace-root \"{}\" \\\n  --state-file \"{}/.config/uwu/state.json\" \\\n  --ttyd-port-start 7681 \\\n  --ttyd-user \"{}\" \\\n  --ttyd-pass \"{}\" \\\n  --tmux-bin \"{}\" \\\n  --opencode-repo \"{}/opencode\" \\\n  --oh-my-opencode-repo \"{}/oh-my-opencode\" \\\n  --openagentscontrol-repo \"{}/openagentscontrol\"\n",
         env_path,
         daemon_bin,
         workspace_str,
@@ -405,6 +404,7 @@ pub fn run_install(
         ttyd_user,
         ttyd_pass,
         tmux_bin,
+        install_str,
         install_str,
         install_str
     );
@@ -452,7 +452,6 @@ pub fn run_install(
         run_sudo("allowing nginx", &["ufw", "allow", "Nginx Full"]);
         run_sudo("enabling firewall", &["ufw", "--force", "enable"]);
     }
-
 
     // Kill any stray ttyd processes before starting daemon
     run_sudo(

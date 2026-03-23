@@ -42,6 +42,9 @@ pub struct Cli {
 
     #[arg(long, default_value = "../oh-my-opencode")]
     pub oh_my_opencode_repo: PathBuf,
+
+    #[arg(long, default_value = "../openagentscontrol")]
+    pub openagentscontrol_repo: PathBuf,
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
@@ -80,6 +83,7 @@ pub struct AppConfig {
     pub tmux_bin: String,
     pub opencode_repo: PathBuf,
     pub oh_my_opencode_repo: PathBuf,
+    pub openagentscontrol_repo: PathBuf,
     pub execute_commands: bool,
 }
 
@@ -98,6 +102,11 @@ impl AppConfig {
             cli.oh_my_opencode_repo.clone()
         } else {
             cwd.join(&cli.oh_my_opencode_repo)
+        };
+        let openagentscontrol_repo = if cli.openagentscontrol_repo.is_absolute() {
+            cli.openagentscontrol_repo.clone()
+        } else {
+            cwd.join(&cli.openagentscontrol_repo)
         };
 
         let tmux_bin = cli
@@ -119,6 +128,7 @@ impl AppConfig {
             tmux_bin,
             opencode_repo,
             oh_my_opencode_repo,
+            openagentscontrol_repo,
             execute_commands,
         }
     }

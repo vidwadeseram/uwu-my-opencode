@@ -11,24 +11,70 @@ This guide explains how to create a tmux session script and start the project/mi
 
 ## Environment setup
 
-Each service uses a `.envrc` file for environment variables, loaded via `direnv`.
+### Automatic Setup (All repos on server already have these files)
 
-Example `.envrc` pattern (from allinonepos services):
+All API services in `/root/workspaces/allinonepos/` have `.envrc` files created from their `.env.example`.
+All frontend services have `.env` files with the correct API base URLs.
+
+**You don't need to create these manually** - they're already there!
+
+### API Services (.envrc files)
+
+Each Go API service uses a `.envrc` file for environment variables, loaded via `direnv`.
+
+Example `.envrc` pattern:
 
 ```bash
 export DEBUG=true
 export HOST=localhost
-export PORT=8000
-export POSTGRESQL_DSL=postgresql://postgres:123456@localhost:5432/pos_identity?sslmode=disable
+export PORT=8001
+export GRPC_SERVER_PORT=9001
+export POSTGRESQL_DSL=postgresql://postgres:123456@localhost:5432/pos_identity
+export GOPRIVATE=github.com/allinonepos
+export JWT_SECRET=123456
+export REFRESH_SECRET=abcd1234
 ```
 
-Frontends typically use a `.env` file with base URLs:
+**Available .envrc files:**
+- `pos-identity-api/.envrc` (PORT=8001, GRPC=9001)
+- `pos-commons-api/.envrc` (PORT=8003, GRPC=9003)
+- `pos-customer-api/.envrc` (PORT=8002, GRPC=9002)
+- `pos-inventory-api/.envrc` (PORT=8004, GRPC=9004)
+- `pos-loro-api/.envrc` (PORT=8005, GRPC=9005)
+- `pos-payment-api/.envrc` (PORT=8006, GRPC=9006)
+- `pos-super-admin-api/.envrc` (PORT=8008, GRPC=9008)
+- And more...
+
+### Frontend Services (.env files)
+
+Frontends use a `.env` file with base URLs:
 
 ```env
-NEXT_PUBLIC_BASE_URL_IDENTITY="http://localhost:8000"
-NEXT_PUBLIC_BASE_URL_INVENTORY="http://localhost:8003"
+NEXT_PUBLIC_BASE_URL_IDENTITY="http://localhost:8001"
+NEXT_PUBLIC_BASE_URL_COMMONS="http://localhost:8003"
+NEXT_PUBLIC_BASE_URL_CUSTOMER="http://localhost:8002"
+NEXT_PUBLIC_BASE_URL_INVENTORY="http://localhost:8004"
+NEXT_PUBLIC_BASE_URL_LORO="http://localhost:8005"
+NEXT_PUBLIC_BASE_URL_PAYMENT="http://localhost:8006"
 NEXT_PUBLIC_BASE_URL_IPG="https://ipg.dev.marxpos.com"
 ```
+
+**Available .env files:**
+- `pos-web/.env`
+- `pos-super-admin/.env`
+- `pos-customer/.env`
+- `pos-mobile/.env`
+
+### Before Running Services
+
+For API services, allow direnv to load the environment:
+
+```bash
+cd pos-identity-api
+direnv allow
+```
+
+You only need to run `direnv allow` once per service after the `.envrc` is created.
 
 ## Tmux session script template
 

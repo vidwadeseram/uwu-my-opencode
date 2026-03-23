@@ -353,6 +353,21 @@ impl WorkspaceManager {
         );
         tokio::fs::write(plugin_file, plugin_content).await?;
 
+        let oac_src = self
+            .config
+            .openagentscontrol_repo
+            .join("src")
+            .join("index.ts")
+            .to_string_lossy()
+            .to_string();
+
+        let oac_plugin_file = plugins_dir.join("openagentscontrol.ts");
+        let oac_plugin_content = format!(
+            "import OpenAgentsControl from \"{}\";\nexport default OpenAgentsControl;\n",
+            oac_src.replace('\\', "\\\\")
+        );
+        tokio::fs::write(oac_plugin_file, oac_plugin_content).await?;
+
         let host_project_file = commands_dir.join("host-project.md");
         let host_project_content = r#"---
 description: host current project and provide a URL reachable from my PC
