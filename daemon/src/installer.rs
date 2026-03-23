@@ -290,6 +290,18 @@ pub fn run_install(
         ],
     );
 
+    if !run(
+        "applying local submodule patches",
+        "bash",
+        &[&format!(
+            "{}/scripts/apply-submodule-patches.sh",
+            install_str
+        )],
+    ) {
+        eprintln!("[uwu] failed to apply submodule patches");
+        std::process::exit(1);
+    }
+
     let oh_my_opencode_dir = install_dir.join("oh-my-opencode");
     let oh_my_openagent_dir = install_dir.join("oh-my-openagent");
     let oh_my_opencode_dir_str = oh_my_opencode_dir.to_string_lossy().to_string();

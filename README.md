@@ -108,6 +108,9 @@ cd uwu-my-opencode
 
 git submodule update --init --recursive
 
+# apply parent-repo patch overlays to submodules
+./scripts/apply-submodule-patches.sh
+
 # build forked tmux
 cd tmux
 sh autogen.sh

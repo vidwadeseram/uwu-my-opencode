@@ -1,0 +1,1720 @@
+diff --git a/.github/workflows/test.yml b/.github/workflows/test.yml
+index c928e82..3e2486f 100644
+--- a/.github/workflows/test.yml
++++ b/.github/workflows/test.yml
+@@ -96,3 +96,14 @@ jobs:
+           path: |
+             packages/app/e2e/test-results
+             packages/app/e2e/playwright-report
++
++      - name: Upload regression report artifacts
++        if: always()
++        uses: actions/upload-artifact@v4
++        with:
++          name: regression-reports-${{ matrix.settings.name }}-${{ github.run_attempt }}
++          if-no-files-found: ignore
++          retention-days: 7
++          path: |
++            logs/**
++            packages/app/logs/**
+diff --git a/README.md b/README.md
+index 79ccf8b..145724c 100644
+--- a/README.md
++++ b/README.md
+@@ -116,6 +116,34 @@ Learn more about [agents](https://opencode.ai/docs/agents).
+ 
+ For more info on how to configure OpenCode, [**head over to our docs**](https://opencode.ai/docs).
+ 
++### Regression Reports (Dev)
++
++Regression runs are written to `logs/{date}{time}/` and each run contains `index.html`, `manifest.json`, `screenshots/`, and `video/`.
++
++Generate a report run package:
++
++```bash
++bun run --cwd packages/opencode --conditions=browser ./src/index.ts report generate --logs-root logs
++```
++
++Open the latest report URL:
++
++```bash
++bun run --cwd packages/opencode --conditions=browser ./src/index.ts report open-latest --base-url http://127.0.0.1:4096
++```
++
++Run regression e2e capture locally:
++
++```bash
++bun --cwd packages/app test:e2e:regression
++```
++
++Troubleshooting:
++
++- `no report runs found`: create a run with `report generate` or run `test:e2e:regression` first.
++- Missing screenshot/video warning in report HTML: confirm the run produced files in `logs/<runId>/screenshots` and `logs/<runId>/video`.
++- Report page not opening: verify server is reachable and open `http://127.0.0.1:4096/reports`.
++
+ ### Contributing
+ 
+ If you're interested in contributing to OpenCode, please read our [contributing docs](./CONTRIBUTING.md) before submitting a pull request.
+diff --git a/packages/app/e2e/app/home.spec.ts b/packages/app/e2e/app/home.spec.ts
+index a3cedf7..df182e9 100644
+--- a/packages/app/e2e/app/home.spec.ts
++++ b/packages/app/e2e/app/home.spec.ts
+@@ -19,3 +19,17 @@ test("server picker dialog opens from home", async ({ page }) => {
+   await expect(dialog).toBeVisible()
+   await expect(dialog.getByRole("textbox").first()).toBeVisible()
+ })
++
++test("reports entry opens reports index and shows empty state", async ({ page }) => {
++  await page.goto("/")
++
++  const [popup] = await Promise.all([
++    page.waitForEvent("popup"),
++    page.getByTestId("reports-entry-button").click(),
++  ])
++
++  await expect(popup).toHaveURL(/\/reports$/)
++  await expect(popup.getByRole("heading", { name: "Regression Reports" })).toBeVisible()
++  await expect(popup.getByText("No report runs available yet.")).toBeVisible()
++  await popup.close()
++})
+diff --git a/packages/app/package.json b/packages/app/package.json
+index d06ac25..bed5d98 100644
+--- a/packages/app/package.json
++++ b/packages/app/package.json
+@@ -19,6 +19,7 @@
+     "test:unit:watch": "bun test --watch --preload ./happydom.ts ./src",
+     "test:e2e": "playwright test",
+     "test:e2e:local": "bun script/e2e-local.ts",
++    "test:e2e:regression": "PLAYWRIGHT_REGRESSION=1 bun script/e2e-local.ts",
+     "test:e2e:ui": "playwright test --ui",
+     "test:e2e:report": "playwright show-report e2e/playwright-report"
+   },
+diff --git a/packages/app/playwright.config.ts b/packages/app/playwright.config.ts
+index 2667b89..3de541b 100644
+--- a/packages/app/playwright.config.ts
++++ b/packages/app/playwright.config.ts
+@@ -1,4 +1,5 @@
+ import { defineConfig, devices } from "@playwright/test"
++import path from "node:path"
+ 
+ const port = Number(process.env.PLAYWRIGHT_PORT ?? 3000)
+ const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`
+@@ -7,10 +8,43 @@ const serverPort = process.env.PLAYWRIGHT_SERVER_PORT ?? "4096"
+ const command = `bun run dev -- --host 0.0.0.0 --port ${port}`
+ const reuse = !process.env.CI
+ const workers = Number(process.env.PLAYWRIGHT_WORKERS ?? (process.env.CI ? 5 : 0)) || undefined
++const regression = process.env.PLAYWRIGHT_REGRESSION === "1"
++const runDir = process.env.PLAYWRIGHT_REPORT_RUN_DIR
++const outputDir = regression && runDir ? path.join(runDir, "artifacts") : "./e2e/test-results"
++const reportDir = regression && runDir ? path.join(runDir, "html") : "e2e/playwright-report"
++
++function mode<T extends readonly string[]>(name: string, value: string | undefined, allowed: T, fallback: T[number]) {
++  if (!value) return fallback
++  if ((allowed as readonly string[]).includes(value)) return value as T[number]
++  throw new Error(`Invalid ${name} mode: ${value}. Allowed: ${allowed.join(", ")}`)
++}
++
++const traceAllowed = ["off", "on", "retain-on-failure", "on-first-retry", "on-all-retries"] as const
++const screenshotAllowed = ["off", "on", "only-on-failure", "on-first-failure"] as const
++const videoAllowed = ["off", "on", "retain-on-failure", "on-first-retry"] as const
++
++const trace = mode(
++  "trace",
++  process.env.PLAYWRIGHT_TRACE_MODE,
++  traceAllowed,
++  regression ? "on" : "on-first-retry",
++)
++const screenshot = mode(
++  "screenshot",
++  process.env.PLAYWRIGHT_SCREENSHOT_MODE,
++  screenshotAllowed,
++  regression ? "on" : "only-on-failure",
++)
++const video = mode(
++  "video",
++  process.env.PLAYWRIGHT_VIDEO_MODE,
++  videoAllowed,
++  regression ? "on" : "retain-on-failure",
++)
+ 
+ export default defineConfig({
+   testDir: "./e2e",
+-  outputDir: "./e2e/test-results",
++  outputDir,
+   timeout: 60_000,
+   expect: {
+     timeout: 10_000,
+@@ -19,7 +53,7 @@ export default defineConfig({
+   forbidOnly: !!process.env.CI,
+   retries: process.env.CI ? 2 : 0,
+   workers,
+-  reporter: [["html", { outputFolder: "e2e/playwright-report", open: "never" }], ["line"]],
++  reporter: [["html", { outputFolder: reportDir, open: "never" }], ["line"]],
+   webServer: {
+     command,
+     url: baseURL,
+@@ -32,9 +66,9 @@ export default defineConfig({
+   },
+   use: {
+     baseURL,
+-    trace: "on-first-retry",
+-    screenshot: "only-on-failure",
+-    video: "retain-on-failure",
++    trace,
++    screenshot,
++    video,
+   },
+   projects: [
+     {
+diff --git a/packages/app/script/e2e-local.ts b/packages/app/script/e2e-local.ts
+index 4841c4f..51b8a68 100644
+--- a/packages/app/script/e2e-local.ts
++++ b/packages/app/script/e2e-local.ts
+@@ -76,7 +76,7 @@ const serverEnv = {
+   OPENCODE_STRICT_CONFIG_DEPS: "true",
+ } satisfies Record<string, string>
+ 
+-const runnerEnv = {
++let runnerEnv = {
+   ...serverEnv,
+   PLAYWRIGHT_SERVER_HOST: "127.0.0.1",
+   PLAYWRIGHT_SERVER_PORT: String(serverPort),
+@@ -132,6 +132,23 @@ process.once("unhandledRejection", (error) => {
+ let code = 1
+ 
+ try {
++  if (process.env.PLAYWRIGHT_REGRESSION === "1") {
++    const root = path.resolve(process.env.PLAYWRIGHT_REPORT_LOGS_ROOT ?? path.join(repoDir, "logs"))
++    const report = await import("../../opencode/src/report/run")
++    const run = await report.ReportRun.create({
++      root,
++      id: process.env.PLAYWRIGHT_REPORT_RUN_ID,
++    })
++    runnerEnv = {
++      ...runnerEnv,
++      PLAYWRIGHT_REGRESSION: "1",
++      PLAYWRIGHT_REPORT_RUN_ID: run.id,
++      PLAYWRIGHT_REPORT_RUN_DIR: run.dir,
++    }
++    console.log(`playwright regression run: ${run.id}`)
++    console.log(`playwright regression dir: ${run.dir}`)
++  }
++
+   seed = Bun.spawn(["bun", "script/seed-e2e.ts"], {
+     cwd: opencodeDir,
+     env: serverEnv,
+diff --git a/packages/app/src/pages/home.tsx b/packages/app/src/pages/home.tsx
+index ba3a2b9..b4fd883 100644
+--- a/packages/app/src/pages/home.tsx
++++ b/packages/app/src/pages/home.tsx
+@@ -43,6 +43,13 @@ export default function Home() {
+     navigate(`/${base64Encode(directory)}`)
+   }
+ 
++  function openReports() {
++    const base = server.current?.http.url
++    if (!base) return
++    const url = new URL("/reports", base.endsWith("/") ? base : `${base}/`).toString()
++    platform.openLink(url)
++  }
++
+   async function chooseProject() {
+     function resolve(result: string | string[] | null) {
+       if (Array.isArray(result)) {
+@@ -85,6 +92,15 @@ export default function Home() {
+         />
+         {server.name}
+       </Button>
++      <Button
++        size="large"
++        variant="ghost"
++        class="mt-2 mx-auto text-14-regular text-text-weak"
++        onClick={openReports}
++        data-testid="reports-entry-button"
++      >
++        Reports
++      </Button>
+       <Switch>
+         <Match when={sync.data.project.length > 0}>
+           <div class="mt-20 w-full flex flex-col gap-4">
+diff --git a/packages/app/src/pages/layout.tsx b/packages/app/src/pages/layout.tsx
+index ab2687d..d8e16ab 100644
+--- a/packages/app/src/pages/layout.tsx
++++ b/packages/app/src/pages/layout.tsx
+@@ -1173,6 +1173,13 @@ export default function Layout(props: ParentProps) {
+     dialog.show(() => <DialogSettings />)
+   }
+ 
++  function openReports() {
++    const base = server.current?.http.url
++    if (!base) return
++    const url = new URL("/reports", base.endsWith("/") ? base : `${base}/`).toString()
++    platform.openLink(url)
++  }
++
+   function projectRoot(directory: string) {
+     const project = layout.projects
+       .list()
+@@ -2257,6 +2264,8 @@ export default function Layout(props: ParentProps) {
+       settingsLabel={() => language.t("sidebar.settings")}
+       settingsKeybind={() => command.keybind("settings.open")}
+       onOpenSettings={openSettings}
++      reportsLabel={() => "Reports"}
++      onOpenReports={openReports}
+       helpLabel={() => language.t("sidebar.help")}
+       onOpenHelp={() => platform.openLink("https://opencode.ai/desktop-feedback")}
+       renderPanel={() =>
+diff --git a/packages/console/app/src/routes/workspace/[id].tsx b/packages/console/app/src/routes/workspace/[id].tsx
+index 7a8e161..bdb4b72 100644
+--- a/packages/console/app/src/routes/workspace/[id].tsx
++++ b/packages/console/app/src/routes/workspace/[id].tsx
+@@ -31,6 +31,9 @@ export default function WorkspaceLayout(props: RouteSectionProps) {
+               <A href={`/workspace/${params.id}/members`} activeClass="active" data-nav-button>
+                 {i18n.t("workspace.nav.members")}
+               </A>
++              <A href={`/workspace/${params.id}/reports`} activeClass="active" data-nav-button>
++                Reports
++              </A>
+               <Show when={userInfo()?.isAdmin}>
+                 <A href={`/workspace/${params.id}/billing`} activeClass="active" data-nav-button>
+                   {i18n.t("workspace.nav.billing")}
+@@ -59,6 +62,9 @@ export default function WorkspaceLayout(props: RouteSectionProps) {
+               <A href={`/workspace/${params.id}/members`} activeClass="active" data-nav-button>
+                 {i18n.t("workspace.nav.members")}
+               </A>
++              <A href={`/workspace/${params.id}/reports`} activeClass="active" data-nav-button>
++                Reports
++              </A>
+               <Show when={userInfo()?.isAdmin}>
+                 <A href={`/workspace/${params.id}/billing`} activeClass="active" data-nav-button>
+                   {i18n.t("workspace.nav.billing")}
+diff --git a/packages/console/app/src/routes/workspace/[id]/reports/index.css b/packages/console/app/src/routes/workspace/[id]/reports/index.css
+new file mode 100644
+index 0000000..702d080
+--- /dev/null
++++ b/packages/console/app/src/routes/workspace/[id]/reports/index.css
+@@ -0,0 +1,149 @@
++[data-page="workspace-reports"] {
++  display: flex;
++  flex-direction: column;
++  gap: 16px;
++
++  [data-component="reports-header"] {
++    display: grid;
++    gap: 6px;
++
++    h1 {
++      margin: 0;
++      font-size: 24px;
++      line-height: 1.2;
++      color: var(--text-primary);
++    }
++
++    p {
++      margin: 0;
++      color: var(--text-secondary);
++    }
++  }
++
++  [data-component="reports-empty"],
++  [data-component="reports-error"] {
++    border: 1px solid var(--border-default);
++    border-radius: 12px;
++    background: var(--surface-default);
++    padding: 14px;
++    color: var(--text-secondary);
++
++    h2 {
++      margin: 0 0 8px;
++      font-size: 16px;
++      color: var(--text-primary);
++    }
++
++    p {
++      margin: 0;
++    }
++
++    p + p {
++      margin-top: 8px;
++    }
++  }
++
++  [data-component="reports-groups"] {
++    display: grid;
++    gap: 12px;
++  }
++
++  [data-component="reports-group"] {
++    border: 1px solid var(--border-default);
++    border-radius: 12px;
++    background: var(--surface-default);
++    overflow: hidden;
++
++    > summary {
++      list-style: none;
++      display: flex;
++      align-items: center;
++      justify-content: space-between;
++      gap: 10px;
++      cursor: pointer;
++      padding: 12px 14px;
++      font-weight: 600;
++      color: var(--text-primary);
++      user-select: none;
++      background: var(--surface-subtle);
++    }
++
++    > summary::-webkit-details-marker {
++      display: none;
++    }
++
++    > ul {
++      list-style: none;
++      display: grid;
++      gap: 10px;
++      margin: 0;
++      padding: 12px;
++    }
++
++    > ul > li {
++      border: 1px solid var(--border-subtle);
++      border-radius: 10px;
++      padding: 10px 12px;
++      background: var(--surface-elevated);
++      display: grid;
++      gap: 5px;
++
++      [data-slot="row-head"] {
++        display: flex;
++        align-items: center;
++        gap: 8px;
++        justify-content: space-between;
++        flex-wrap: wrap;
++
++        a {
++          text-decoration: none;
++          color: var(--text-link);
++          font-weight: 600;
++        }
++      }
++
++      [data-slot="status"] {
++        font-size: 11px;
++        font-weight: 700;
++        letter-spacing: 0.03em;
++        text-transform: uppercase;
++        border: 1px solid var(--border-default);
++        border-radius: 999px;
++        padding: 2px 8px;
++      }
++
++      &[data-status="pass"] [data-slot="status"] {
++        color: #166534;
++        border-color: #86efac;
++        background: #f0fdf4;
++      }
++
++      &[data-status="fail"] [data-slot="status"] {
++        color: #991b1b;
++        border-color: #fecaca;
++        background: #fef2f2;
++      }
++
++      &[data-status="partial"] [data-slot="status"] {
++        color: #854d0e;
++        border-color: #fde68a;
++        background: #fffbeb;
++      }
++
++      &[data-status="running"] [data-slot="status"] {
++        color: #1d4ed8;
++        border-color: #bfdbfe;
++        background: #eff6ff;
++      }
++
++      p {
++        margin: 0;
++        color: var(--text-secondary);
++      }
++
++      [data-slot="issue"] {
++        color: #9a3412;
++      }
++    }
++  }
++}
+diff --git a/packages/console/app/src/routes/workspace/[id]/reports/index.tsx b/packages/console/app/src/routes/workspace/[id]/reports/index.tsx
+new file mode 100644
+index 0000000..ad6561d
+--- /dev/null
++++ b/packages/console/app/src/routes/workspace/[id]/reports/index.tsx
+@@ -0,0 +1,114 @@
++import { createResource, For, Match, Show, Switch } from "solid-js"
++import "./index.css"
++import "./index.css"
++
++type Row = {
++  id: string
++  route: string
++  createdAt: string | null
++  status: "running" | "pass" | "fail" | "partial"
++  summary: {
++    total: number
++    passed: number
++    failed: number
++    skipped: number
++  }
++  issue: string | null
++}
++
++function day(v: string | null) {
++  if (!v) return "unknown"
++  const hit = v.match(/^(\d{4}-\d{2}-\d{2})/)
++  if (!hit) return "unknown"
++  return hit[1]
++}
++
++async function list() {
++  const res = await fetch("/reports?format=json")
++  if (!res.ok) throw new Error(`report list failed (${res.status})`)
++  const data = (await res.json()) as Row[]
++  return data
++}
++
++export default function WorkspaceReportsPage() {
++  const [rows] = createResource(list)
++
++  const grouped = () => {
++    const data = rows() ?? []
++    const map = new Map<string, Row[]>()
++    for (const row of data) {
++      const key = day(row.createdAt)
++      const list = map.get(key) ?? []
++      list.push(row)
++      map.set(key, list)
++    }
++    return [...map.entries()]
++  }
++
++  return (
++    <div data-page="workspace-reports">
++      <section data-component="reports-header">
++        <h1>Regression Reports</h1>
++        <p>Open generated HTML runs, screenshots, and videos from recent test executions.</p>
++      </section>
++
++      <Switch>
++        <Match when={rows.loading}>
++          <section data-component="reports-empty">Loading reports...</section>
++        </Match>
++
++        <Match when={rows.error}>
++          <section data-component="reports-error">
++            <h2>Unable to load reports</h2>
++            <p>{rows.error instanceof Error ? rows.error.message : "Request failed"}</p>
++            <p>
++              Verify the reports endpoint is available at <code>/reports</code>.
++            </p>
++          </section>
++        </Match>
++
++        <Match when={(rows() ?? []).length === 0}>
++          <section data-component="reports-empty">No report runs available yet.</section>
++        </Match>
++
++        <Match when={(rows() ?? []).length > 0}>
++          <section data-component="reports-groups">
++            <For each={grouped()}>
++              {([group, items], idx) => (
++                <details open={idx() === 0} data-component="reports-group">
++                  <summary>
++                    <span>{group}</span>
++                    <span>{items.length} runs</span>
++                  </summary>
++                  <ul>
++                    <For each={items}>
++                      {(item) => (
++                        <li data-status={item.status}>
++                          <div data-slot="row-head">
++                            <a href={item.route} target="_blank" rel="noreferrer" data-run-id={item.id}>
++                              <code>{item.id}</code>
++                            </a>
++                            <span data-slot="status">{item.status}</span>
++                          </div>
++                          <p>
++                            <span>Created:</span> <code>{item.createdAt ?? "unknown"}</code>
++                          </p>
++                          <p>
++                            <span>Summary:</span> {item.summary.passed}/{item.summary.total} passed • {item.summary.failed} failed • {item.summary.skipped} skipped
++                          </p>
++                          <Show when={item.issue}>
++                            <p data-slot="issue">{item.issue}</p>
++                          </Show>
++                        </li>
++                      )}
++                    </For>
++                  </ul>
++                </details>
++              )}
++            </For>
++          </section>
++        </Match>
++      </Switch>
++    </div>
++  )
++}
+diff --git a/packages/opencode/src/cli/cmd/report.ts b/packages/opencode/src/cli/cmd/report.ts
+new file mode 100644
+index 0000000..02d6d13
+--- /dev/null
++++ b/packages/opencode/src/cli/cmd/report.ts
+@@ -0,0 +1,135 @@
++import path from "path"
++import type { Argv } from "yargs"
++import { bootstrap } from "@/cli/bootstrap"
++import { cmd } from "@/cli/cmd/cmd"
++import { ReportRun } from "@/report/run"
++import { ReportList } from "@/report/list"
++import { ReportHTML } from "@/report/html"
++import { UI } from "@/cli/ui"
++
++function root(input?: string) {
++  return path.resolve(input ?? path.join(process.cwd(), "logs"))
++}
++
++function route(id: string) {
++  return `/reports/${id}`
++}
++
++function link(base: string, p: string) {
++  return new URL(p, base.endsWith("/") ? base : `${base}/`).toString()
++}
++
++export const ReportCommand = cmd({
++  command: "report",
++  describe: "manage regression report runs",
++  builder: (yargs: Argv) => yargs.command(ReportGenerateCommand).command(ReportOpenLatestCommand).demandCommand(),
++  async handler() {},
++})
++
++export const ReportGenerateCommand = cmd({
++  command: "generate",
++  describe: "create a regression report run folder",
++  builder: (yargs: Argv) =>
++    yargs
++      .option("logs-root", {
++        type: "string",
++        describe: "root directory for report runs",
++        default: "logs",
++      })
++      .option("run-id", {
++        type: "string",
++        describe: "optional run id override",
++      })
++      .option("base-url", {
++        type: "string",
++        describe: "server base URL used for report links",
++        default: "http://127.0.0.1:4096",
++      })
++      .option("json", {
++        type: "boolean",
++        describe: "print machine-readable output",
++        default: false,
++      }),
++  handler: async (args) => {
++    await bootstrap(process.cwd(), async () => {
++      const out = await ReportRun.create({
++        root: root(args.logsRoot),
++        id: args.runId,
++      })
++      const html = await ReportHTML.generate({
++        root: root(args.logsRoot),
++        id: out.id,
++      })
++      const p = route(out.id)
++      const url = link(args.baseUrl, p)
++      if (args.json) {
++        console.log(
++          JSON.stringify(
++            {
++              runId: out.id,
++              dir: out.dir,
++              route: p,
++              url,
++              index: html.index,
++              warnings: html.warnings,
++            },
++            null,
++            2,
++          ),
++        )
++        return
++      }
++      UI.println(`runId: ${out.id}`)
++      UI.println(`dir: ${out.dir}`)
++      UI.println(`route: ${p}`)
++      UI.println(`url: ${url}`)
++      UI.println(`index: ${html.index}`)
++      if (html.warnings.length) UI.println(`warnings: ${html.warnings.join(", ")}`)
++    })
++  },
++})
++
++export const ReportOpenLatestCommand = cmd({
++  command: "open-latest",
++  describe: "resolve URL for latest report run",
++  builder: (yargs: Argv) =>
++    yargs
++      .option("logs-root", {
++        type: "string",
++        describe: "root directory for report runs",
++        default: "logs",
++      })
++      .option("base-url", {
++        type: "string",
++        describe: "server base URL used for report links",
++        default: "http://127.0.0.1:4096",
++      })
++      .option("json", {
++        type: "boolean",
++        describe: "print machine-readable output",
++        default: false,
++      }),
++  handler: async (args) => {
++    await bootstrap(process.cwd(), async () => {
++      const id = await ReportList.latest(root(args.logsRoot))
++      if (!id) throw new Error(`no report runs found in ${root(args.logsRoot)}`)
++      const p = route(id)
++      const url = link(args.baseUrl, p)
++      if (args.json) {
++        console.log(
++          JSON.stringify(
++            {
++              runId: id,
++              route: p,
++              url,
++            },
++            null,
++            2,
++          ),
++        )
++        return
++      }
++      UI.println(url)
++    })
++  },
++})
+diff --git a/packages/opencode/src/index.ts b/packages/opencode/src/index.ts
+index b3d1db7..b08724c 100644
+--- a/packages/opencode/src/index.ts
++++ b/packages/opencode/src/index.ts
+@@ -30,6 +30,7 @@ import { WebCommand } from "./cli/cmd/web"
+ import { PrCommand } from "./cli/cmd/pr"
+ import { SessionCommand } from "./cli/cmd/session"
+ import { DbCommand } from "./cli/cmd/db"
++import { ReportCommand } from "./cli/cmd/report"
+ import path from "path"
+ import { Global } from "./global"
+ import { JsonMigration } from "./storage/json-migration"
+@@ -145,6 +146,7 @@ let cli = yargs(hideBin(process.argv))
+   .command(PrCommand)
+   .command(SessionCommand)
+   .command(DbCommand)
++  .command(ReportCommand)
+ 
+ if (Installation.isLocal()) {
+   cli = cli.command(WorkspaceServeCommand)
+diff --git a/packages/opencode/src/report/html.ts b/packages/opencode/src/report/html.ts
+new file mode 100644
+index 0000000..5851823
+--- /dev/null
++++ b/packages/opencode/src/report/html.ts
+@@ -0,0 +1,86 @@
++import fs from "fs/promises"
++import path from "path"
++import { Filesystem } from "@/util/filesystem"
++import { ReportManifest } from "@/report/manifest"
++import { ReportRun } from "@/report/run"
++import { ReportTemplate } from "@/report/template"
++
++async function walk(base: string, dir: string): Promise<string[]> {
++  const list = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
++  const out = await Promise.all(
++    list.map(async (x) => {
++      const full = path.join(dir, x.name)
++      if (x.isDirectory()) return walk(base, full)
++      return [path.relative(base, full).split(path.sep).join("/")]
++    }),
++  )
++  return out.flat()
++}
++
++function page(input: { id: string; created: string; shots: string[]; videos: string[]; warnings: string[] }) {
++  const shots =
++    input.shots.length === 0
++      ? '<p class="warn" data-warning="screenshots">No screenshots found.</p>'
++      : `<ul class="clean grid">${input.shots
++          .map(
++            (x) =>
++              `<li class="card"><figure><a href="${ReportTemplate.esc(x)}"><img loading="lazy" src="${ReportTemplate.esc(x)}" alt="${ReportTemplate.esc(x)}" /></a><figcaption><a href="${ReportTemplate.esc(x)}">${ReportTemplate.esc(x)}</a></figcaption></figure></li>`,
++          )
++          .join("")}</ul>`
++  const videos =
++    input.videos.length === 0
++      ? '<p class="warn" data-warning="video">No video found.</p>'
++      : `<ul class="clean grid">${input.videos
++          .map(
++            (x) =>
++              `<li class="card"><figure><video controls preload="metadata" src="${ReportTemplate.esc(x)}"></video><figcaption><a href="${ReportTemplate.esc(x)}">${ReportTemplate.esc(x)}</a></figcaption></figure></li>`,
++          )
++          .join("")}</ul>`
++  const warn =
++    input.warnings.length === 0
++      ? ""
++      : `<section class="card"><div class="line"><h2>Warnings</h2><span class="badge status-partial">attention</span></div><ul class="clean">${input.warnings
++          .map((x) => `<li class="warn">${ReportTemplate.esc(x)}</li>`)
++          .join("")}</ul></section>`
++
++  return ReportTemplate.doc({
++    title: `Regression Run ${input.id}`,
++    body: [
++      "<header>",
++      `<div><h1>Regression Run <code>${ReportTemplate.esc(input.id)}</code></h1><p>Created at <code>${ReportTemplate.esc(input.created)}</code></p></div>`,
++      '<a class="btn" href="/reports">Back to reports</a>',
++      "</header>",
++      '<div class="stack">',
++      warn,
++      '<section class="card"><h2>Screenshots</h2>',
++      shots,
++      "</section>",
++      '<section class="card"><h2>Video</h2>',
++      videos,
++      "</section>",
++      "</div>",
++    ].join("\n"),
++  })
++}
++
++export namespace ReportHTML {
++  export async function generate(input: { root: string; id: string }) {
++    const id = ReportRun.validate(input.id)
++    const root = path.resolve(input.root)
++    const dir = path.join(root, id)
++    const index = path.join(dir, "index.html")
++    const file = path.join(dir, "manifest.json")
++    const data = await ReportManifest.read(file).catch(() =>
++      ReportManifest.from({
++        run_id: id,
++        created_at: new Date().toISOString(),
++      }),
++    )
++    const all = await walk(dir, dir)
++    const shots = all.filter((x) => /\.(png|jpg|jpeg|webp)$/i.test(x))
++    const videos = all.filter((x) => /\.(mp4|webm)$/i.test(x))
++    const warnings = [shots.length === 0 ? "Missing screenshots" : "", videos.length === 0 ? "Missing video" : ""].filter(Boolean)
++    await Filesystem.write(index, page({ id, created: data.created_at, shots, videos, warnings }))
++    return { index, shots, videos, warnings }
++  }
++}
+diff --git a/packages/opencode/src/report/list.ts b/packages/opencode/src/report/list.ts
+new file mode 100644
+index 0000000..07f5d37
+--- /dev/null
++++ b/packages/opencode/src/report/list.ts
+@@ -0,0 +1,117 @@
++import fs from "fs/promises"
++import path from "path"
++import { ReportManifest, type ReportStatus, type ReportSummary } from "@/report/manifest"
++import { ReportRun } from "@/report/run"
++
++export type ReportRow = {
++  id: string
++  route: string
++  createdAt: string | null
++  status: ReportStatus
++  summary: ReportSummary
++  issue: string | null
++}
++
++function stamp(id: string) {
++  const hit = id.match(/^(\d{4})-(\d{2})-(\d{2})(\d{2})-(\d{2})-(\d{2})$/)
++  if (!hit) return -1
++  const y = Number(hit[1])
++  const m = Number(hit[2])
++  const d = Number(hit[3])
++  const h = Number(hit[4])
++  const min = Number(hit[5])
++  const s = Number(hit[6])
++  if ([y, m, d, h, min, s].some((x) => Number.isNaN(x))) return -1
++  return Date.UTC(y, m - 1, d, h, min, s)
++}
++
++function issue(input: { manifest: string | null; shots: boolean; video: boolean; html: boolean }) {
++  const out = [
++    input.manifest,
++    input.shots ? null : "missing screenshots directory",
++    input.video ? null : "missing video directory",
++    input.html ? null : "missing report html",
++  ].filter((x) => !!x)
++  if (out.length === 0) return null
++  return out.join(", ")
++}
++
++async function row(root: string, id: string): Promise<ReportRow> {
++  const dir = path.join(root, id)
++  const file = path.join(dir, "manifest.json")
++  const parsed = await ReportManifest.read(file).catch((err) => {
++    const message = err instanceof Error ? err.message : String(err)
++    return { error: message } as const
++  })
++  const shots = await fs
++    .stat(path.join(dir, "screenshots"))
++    .then((x) => x.isDirectory())
++    .catch(() => false)
++  const video = await fs
++    .stat(path.join(dir, "video"))
++    .then((x) => x.isDirectory())
++    .catch(() => false)
++  const html = await fs
++    .stat(path.join(dir, "index.html"))
++    .then((x) => x.isFile())
++    .catch(() => false)
++
++  if ("error" in parsed) {
++    const note = issue({ manifest: parsed.error, shots, video, html })
++    return {
++      id,
++      route: `/reports/${id}`,
++      createdAt: null,
++      status: "partial",
++      summary: { total: 0, passed: 0, failed: 0, skipped: 0 },
++      issue: note,
++    }
++  }
++
++  const mismatch = parsed.run_id === id ? null : "manifest run_id mismatch"
++  const note = issue({ manifest: mismatch, shots, video, html })
++  return {
++    id,
++    route: `/reports/${id}`,
++    createdAt: parsed.created_at,
++    status: note ? "partial" : parsed.status,
++    summary: parsed.summary,
++    issue: note,
++  }
++}
++
++export namespace ReportList {
++  export async function ids(root: string) {
++    const rows = await list(root)
++    return rows.map((x) => x.id)
++  }
++
++  export async function list(root: string) {
++    const dir = path.resolve(root)
++    const dirs = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
++    const valid = dirs
++      .filter((x) => x.isDirectory())
++      .map((x) => x.name)
++      .filter((x) => {
++        try {
++          ReportRun.validate(x)
++          return true
++        } catch {
++          return false
++        }
++      })
++    const rows = await Promise.all(valid.map((id) => row(dir, id)))
++    return rows.sort((a, b) => {
++      const at = stamp(a.id)
++      const bt = stamp(b.id)
++      if (bt !== at) return bt - at
++      if (a.id === b.id) return 0
++      return a.id < b.id ? 1 : -1
++    })
++  }
++
++  export async function latest(root: string) {
++    const list = await ids(root)
++    return list[0]
++  }
++}
+diff --git a/packages/opencode/src/report/manifest.ts b/packages/opencode/src/report/manifest.ts
+new file mode 100644
+index 0000000..e5450f9
+--- /dev/null
++++ b/packages/opencode/src/report/manifest.ts
+@@ -0,0 +1,105 @@
++import path from "path"
++import { Filesystem } from "@/util/filesystem"
++
++export type ReportStatus = "running" | "pass" | "fail" | "partial"
++
++export interface ReportSummary {
++  total: number
++  passed: number
++  failed: number
++  skipped: number
++}
++
++export interface ReportArtifacts {
++  html: string
++  screenshots: string
++  video: string
++}
++
++export interface ReportManifest {
++  run_id: string
++  created_at: string
++  suite: string
++  started_at?: string
++  ended_at?: string
++  status: ReportStatus
++  summary: ReportSummary
++  artifacts: ReportArtifacts
++}
++
++type ReportManifestInput = Omit<Partial<ReportManifest>, "artifacts" | "summary"> &
++  Pick<ReportManifest, "run_id" | "created_at"> & {
++    summary?: Partial<ReportSummary>
++    artifacts?: Partial<ReportArtifacts>
++  }
++
++function clean(v: string) {
++  return v.replaceAll("\\", "/")
++}
++
++function relative(v: string) {
++  const p = clean(v).trim()
++  if (!p) throw new Error("invalid artifact path: empty")
++  if (path.isAbsolute(p)) throw new Error(`invalid artifact path: ${v}`)
++  const n = path.posix.normalize(p)
++  if (n.startsWith("../") || n === "..") throw new Error(`invalid artifact path: ${v}`)
++  if (n.startsWith("/")) throw new Error(`invalid artifact path: ${v}`)
++  if (n.length > 1 && n.endsWith("/")) return n.slice(0, -1)
++  return n
++}
++
++function summary(v?: Partial<ReportSummary>): ReportSummary {
++  return {
++    total: v?.total ?? 0,
++    passed: v?.passed ?? 0,
++    failed: v?.failed ?? 0,
++    skipped: v?.skipped ?? 0,
++  }
++}
++
++function artifacts(v?: Partial<ReportArtifacts>): ReportArtifacts {
++  return {
++    html: relative(v?.html ?? "index.html"),
++    screenshots: relative(v?.screenshots ?? "screenshots"),
++    video: relative(v?.video ?? "video"),
++  }
++}
++
++function status(v?: string): ReportStatus {
++  if (v === "running" || v === "pass" || v === "fail" || v === "partial") return v
++  return "partial"
++}
++
++export namespace ReportManifest {
++  export function from(input: ReportManifestInput): ReportManifest {
++    if (!input.run_id) throw new Error("invalid manifest: missing run_id")
++    if (!input.created_at) throw new Error("invalid manifest: missing created_at")
++    return {
++      run_id: input.run_id,
++      created_at: input.created_at,
++      suite: input.suite ?? "regression",
++      started_at: input.started_at,
++      ended_at: input.ended_at,
++      status: status(input.status),
++      summary: summary(input.summary),
++      artifacts: artifacts(input.artifacts),
++    }
++  }
++
++  export async function write(file: string, input: ReportManifestInput) {
++    const data = from(input)
++    await Filesystem.writeJson(file, data)
++    return data
++  }
++
++  export async function read(file: string) {
++    const data = await Filesystem.readJson<Partial<ReportManifest>>(file)
++    if (!data.run_id) throw new Error("invalid manifest: missing run_id")
++    if (!data.created_at) throw new Error("invalid manifest: missing created_at")
++    return from({
++      ...data,
++      run_id: data.run_id,
++      created_at: data.created_at,
++    })
++  }
++}
+diff --git a/packages/opencode/src/report/run.ts b/packages/opencode/src/report/run.ts
+new file mode 100644
+index 0000000..627c0c6
+--- /dev/null
++++ b/packages/opencode/src/report/run.ts
+@@ -0,0 +1,74 @@
++import fs from "fs/promises"
++import path from "path"
++import { Filesystem } from "@/util/filesystem"
++import { ReportManifest } from "@/report/manifest"
++
++const RE = /^\d{4}-\d{2}-\d{2}\d{2}-\d{2}-\d{2}$/
++
++function pad(x: number) {
++  return String(x).padStart(2, "0")
++}
++
++function stamp(d: Date) {
++  const y = d.getUTCFullYear()
++  const m = pad(d.getUTCMonth() + 1)
++  const day = pad(d.getUTCDate())
++  const h = pad(d.getUTCHours())
++  const min = pad(d.getUTCMinutes())
++  const s = pad(d.getUTCSeconds())
++  return `${y}-${m}-${day}${h}-${min}-${s}`
++}
++
++function valid(id: string) {
++  if (!id) return false
++  if (id.includes("..")) return false
++  if (id.includes("/") || id.includes("\\")) return false
++  return RE.test(id)
++}
++
++function safe(root: string, id: string) {
++  const base = Filesystem.resolve(root)
++  const dir = path.join(base, id)
++  if (!Filesystem.contains(base, dir)) {
++    throw new Error(`invalid run id: ${id}`)
++  }
++  return dir
++}
++
++export namespace ReportRun {
++  export function createId(d = new Date()) {
++    return stamp(d)
++  }
++
++  export function validate(id: string) {
++    if (valid(id)) return id
++    throw new Error(`invalid run id: ${id}`)
++  }
++
++  export async function create(input: { root: string; id?: string }) {
++    const id = validate(input.id ?? createId())
++    const dir = safe(input.root, id)
++    const shots = path.join(dir, "screenshots")
++    const video = path.join(dir, "video")
++    const manifest = path.join(dir, "manifest.json")
++
++    await fs.mkdir(shots, { recursive: true })
++    await fs.mkdir(video, { recursive: true })
++
++    if (!(await Filesystem.exists(manifest))) {
++      await ReportManifest.write(manifest, {
++        run_id: id,
++        created_at: new Date().toISOString(),
++      })
++    }
++
++    return {
++      id,
++      dir,
++      manifest,
++      screenshots: shots,
++      video,
++      html: path.join(dir, "index.html"),
++    }
++  }
++}
+diff --git a/packages/opencode/src/report/template.ts b/packages/opencode/src/report/template.ts
+new file mode 100644
+index 0000000..9bee079
+--- /dev/null
++++ b/packages/opencode/src/report/template.ts
+@@ -0,0 +1,51 @@
++export namespace ReportTemplate {
++  export function esc(v: string) {
++    return v.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")
++  }
++
++  export const css = [
++    ":root{--bg:#f8fafc;--panel:#fff;--ink:#0f172a;--muted:#475569;--line:#e2e8f0;--ok:#16a34a;--bad:#dc2626;--warn:#ca8a04;--run:#2563eb}",
++    "*{box-sizing:border-box}",
++    "body{margin:0;background:radial-gradient(circle at 10% 0%,#e2e8f0 0%,var(--bg) 35%,#f1f5f9 100%);color:var(--ink);font:15px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif}",
++    "main{max-width:980px;margin:0 auto;padding:28px 20px 48px}",
++    "header{display:flex;justify-content:space-between;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px}",
++    "h1{margin:0;font-size:clamp(24px,2.8vw,34px);letter-spacing:-.02em}",
++    "p{margin:0;color:var(--muted)}",
++    "a{color:#0b4bc4;text-decoration:none}",
++    "a:hover{text-decoration:underline}",
++    "code{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#eef2ff;padding:2px 6px;border-radius:6px}",
++    ".btn{display:inline-flex;align-items:center;gap:8px;border:1px solid #0f172a;border-radius:999px;background:#0f172a;color:#fff;padding:7px 12px;font-weight:600}",
++    ".stack{display:grid;gap:14px}",
++    ".card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 6px 24px #0f172a10}",
++    ".line{display:flex;gap:8px;align-items:center;flex-wrap:wrap}",
++    ".badge{display:inline-flex;align-items:center;border-radius:999px;border:1px solid var(--line);padding:3px 8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}",
++    ".status-pass{color:var(--ok);border-color:#bbf7d0;background:#f0fdf4}",
++    ".status-fail{color:var(--bad);border-color:#fecaca;background:#fef2f2}",
++    ".status-partial{color:var(--warn);border-color:#fde68a;background:#fffbeb}",
++    ".status-running{color:var(--run);border-color:#bfdbfe;background:#eff6ff}",
++    ".muted{color:var(--muted)}",
++    ".grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}",
++    ".warn{color:#9a3412;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:10px}",
++    "ul.clean{list-style:none;padding:0;margin:0;display:grid;gap:10px}",
++    "figure{margin:0;display:grid;gap:8px}",
++    "figcaption{font-size:12px;color:var(--muted);overflow-wrap:anywhere}",
++    "video,img{width:100%;max-height:420px;object-fit:contain;border-radius:10px;border:1px solid var(--line);background:#0000000d}",
++  ].join("")
++
++  export function doc(input: { title: string; body: string }) {
++    return [
++      "<!doctype html>",
++      '<html lang="en">',
++      "<head>",
++      '<meta charset="utf-8" />',
++      '<meta name="viewport" content="width=device-width, initial-scale=1" />',
++      `<title>${esc(input.title)}</title>`,
++      `<style>${css}</style>`,
++      "</head>",
++      "<body>",
++      `<main>${input.body}</main>`,
++      "</body>",
++      "</html>",
++    ].join("\n")
++  }
++}
+diff --git a/packages/opencode/src/server/routes/report.ts b/packages/opencode/src/server/routes/report.ts
+new file mode 100644
+index 0000000..da19046
+--- /dev/null
++++ b/packages/opencode/src/server/routes/report.ts
+@@ -0,0 +1,220 @@
++import { Hono } from "hono"
++import { describeRoute, resolver, validator } from "hono-openapi"
++import z from "zod"
++import path from "path"
++import { lazy } from "@/util/lazy"
++import { Instance } from "@/project/instance"
++import { ReportList } from "@/report/list"
++import { ReportRun } from "@/report/run"
++import { ReportHTML } from "@/report/html"
++import { ReportTemplate } from "@/report/template"
++import { Filesystem } from "@/util/filesystem"
++
++function day(v: string | null) {
++  if (!v) return "unknown"
++  const hit = v.match(/^(\d{4}-\d{2}-\d{2})/)
++  if (!hit) return "unknown"
++  return hit[1]
++}
++
++function group(rows: Awaited<ReturnType<typeof ReportList.list>>) {
++  const map = new Map<string, typeof rows>()
++  for (const row of rows) {
++    const k = day(row.createdAt)
++    const list = map.get(k) ?? []
++    list.push(row)
++    map.set(k, list)
++  }
++  return [...map.entries()]
++}
++
++function row(x: (Awaited<ReturnType<typeof ReportList.list>>)[number]) {
++  const issue = x.issue ? `<p class="warn">${ReportTemplate.esc(x.issue)}</p>` : ""
++  const sum = `${x.summary.passed}/${x.summary.total} passed • ${x.summary.failed} failed • ${x.summary.skipped} skipped`
++  const made = x.createdAt ? ReportTemplate.esc(x.createdAt) : "unknown"
++  return [
++    '<li class="card">',
++    '<div class="line">',
++    `<a href="${ReportTemplate.esc(x.route)}" data-run-id="${ReportTemplate.esc(x.id)}"><code>${ReportTemplate.esc(x.id)}</code></a>`,
++    `<span class="badge status-${ReportTemplate.esc(x.status)}">${ReportTemplate.esc(x.status)}</span>`,
++    "</div>",
++    `<p class="muted">Created: <code>${made}</code></p>`,
++    `<p class="muted">Summary: ${ReportTemplate.esc(sum)}</p>`,
++    issue,
++    "</li>",
++  ].join("\n")
++}
++
++function index(rows: Awaited<ReturnType<typeof ReportList.list>>) {
++  const latest = rows[0] ? `<a class="btn latest" href="${ReportTemplate.esc(rows[0].route)}">Open latest run</a>` : ""
++  if (rows.length === 0) {
++    return ReportTemplate.doc({
++      title: "Regression Reports",
++      body: [
++        '<header><div><h1>Regression Reports</h1><p>Browse generated HTML runs and artifacts.</p></div></header>',
++        '<section class="card"><p data-empty="true">No report runs available yet.</p></section>',
++      ].join("\n"),
++    })
++  }
++
++  const blocks = group(rows)
++    .map(([k, list], i) => {
++      return [
++        `<details class="card" ${i === 0 ? "open" : ""}>`,
++        `<summary class="line"><span><strong>${ReportTemplate.esc(k)}</strong></span><span class="muted">${list.length} runs</span></summary>`,
++        '<ul class="clean stack" style="margin-top:10px">',
++        list.map((x) => row(x)).join("\n"),
++        "</ul>",
++        "</details>",
++      ].join("\n")
++    })
++    .join("\n")
++
++  return ReportTemplate.doc({
++    title: "Regression Reports",
++    body: [
++      '<header><div><h1>Regression Reports</h1><p>Run groups are collapsible by date. Open any run to view screenshots and video.</p></div>',
++      latest,
++      "</header>",
++      '<section class="stack">',
++      blocks,
++      "</section>",
++    ].join("\n"),
++  })
++}
++
++function root() {
++  return path.join(Instance.directory, "logs")
++}
++
++function run(root: string, id: string) {
++  return path.join(root, ReportRun.validate(id))
++}
++
++function safe(base: string, rel: string) {
++  const clean = rel.replaceAll("\\", "/")
++  if (clean.includes("..")) return
++  if (clean.startsWith("/")) return
++  const full = path.join(base, clean)
++  if (!Filesystem.contains(base, full)) return
++  return full
++}
++
++export const ReportRoutes = lazy(() =>
++  new Hono()
++    .get(
++      "/",
++      describeRoute({
++        summary: "List report runs",
++        description: "List available regression report runs from logs directory.",
++        operationId: "report.list",
++        responses: {
++          200: {
++            description: "Report runs",
++            content: {
++              "application/json": {
++                schema: resolver(
++                  z
++                    .object({
++                      id: z.string(),
++                      route: z.string(),
++                      createdAt: z.string().nullable(),
++                      status: z.enum(["running", "pass", "fail", "partial"]),
++                      summary: z.object({
++                        total: z.number(),
++                        passed: z.number(),
++                        failed: z.number(),
++                        skipped: z.number(),
++                      }),
++                      issue: z.string().nullable(),
++                    })
++                    .array(),
++                ),
++              },
++            },
++          },
++        },
++      }),
++      async (c) => {
++        const dir = root()
++        const data = await ReportList.list(dir)
++        const accept = c.req.header("accept") ?? ""
++        const format = c.req.query("format")
++        if (format === "json" || accept.includes("application/json")) {
++          return c.json(data)
++        }
++        c.header("content-type", "text/html; charset=utf-8")
++        return c.body(index(data))
++      },
++    )
++    .get(
++      "/:runId",
++      describeRoute({
++        summary: "Get report HTML",
++        description: "Serve report index page for a run id.",
++        operationId: "report.get",
++        responses: {
++          200: {
++            description: "Report HTML",
++            content: {
++              "text/html": {
++                schema: resolver(z.string()),
++              },
++            },
++          },
++          404: {
++            description: "Run not found",
++          },
++        },
++      }),
++      validator(
++        "param",
++        z.object({
++          runId: z.string(),
++        }),
++      ),
++      async (c) => {
++        const dir = root()
++        const id = c.req.valid("param").runId
++        const runDir = run(dir, id)
++        if (!(await Filesystem.isDir(runDir))) return c.json({ error: "run not found" }, 404)
++        const out = await ReportHTML.generate({ root: dir, id })
++        const html = await Filesystem.readText(out.index)
++        c.header("content-type", "text/html; charset=utf-8")
++        return c.body(html)
++      },
++    )
++    .get(
++      "/:runId/*",
++      validator(
++        "param",
++        z.object({
++          runId: z.string(),
++        }),
++      ),
++      async (c) => {
++        const dir = root()
++        const id = c.req.valid("param").runId
++        const runDir = run(dir, id)
++        if (!(await Filesystem.isDir(runDir))) return c.json({ error: "run not found" }, 404)
++        const prefix = `/reports/${id}/`
++        const raw = c.req.path.startsWith(prefix) ? c.req.path.slice(prefix.length) : ""
++        const rel = (() => {
++          try {
++            return decodeURIComponent(raw)
++          } catch {
++            return raw
++          }
++        })()
++        const target = safe(runDir, rel)
++        if (!target) return c.json({ error: "invalid report path" }, 400)
++        if (!(await Filesystem.exists(target))) return c.json({ error: "file not found" }, 404)
++        const bytes = await Filesystem.readBytes(target)
++        return new Response(new Uint8Array(bytes), {
++          headers: {
++            "content-type": Filesystem.mimeType(target),
++          },
++        })
++      },
++    ),
++)
+diff --git a/packages/opencode/src/server/server.ts b/packages/opencode/src/server/server.ts
+index 55bcf2d..4b4288e 100644
+--- a/packages/opencode/src/server/server.ts
++++ b/packages/opencode/src/server/server.ts
+@@ -43,6 +43,7 @@ import { Filesystem } from "@/util/filesystem"
+ import { QuestionRoutes } from "./routes/question"
+ import { PermissionRoutes } from "./routes/permission"
+ import { GlobalRoutes } from "./routes/global"
++import { ReportRoutes } from "./routes/report"
+ import { MDNS } from "./mdns"
+ import { lazy } from "@/util/lazy"
+ 
+@@ -248,6 +249,7 @@ export namespace Server {
+       .route("/permission", PermissionRoutes())
+       .route("/question", QuestionRoutes())
+       .route("/provider", ProviderRoutes())
++      .route("/reports", ReportRoutes())
+       .route("/", FileRoutes())
+       .route("/mcp", McpRoutes())
+       .route("/tui", TuiRoutes())
+diff --git a/packages/opencode/test/report/html.test.ts b/packages/opencode/test/report/html.test.ts
+new file mode 100644
+index 0000000..631cdb4
+--- /dev/null
++++ b/packages/opencode/test/report/html.test.ts
+@@ -0,0 +1,39 @@
++import { describe, expect, test } from "bun:test"
++import path from "path"
++import { tmpdir } from "../fixture/fixture"
++import { ReportRun } from "../../src/report/run"
++import { Filesystem } from "../../src/util/filesystem"
++import { ReportHTML } from "../../src/report/html"
++
++describe("ReportHTML.generate", () => {
++  test("renders metadata, screenshot list, and video section", async () => {
++    await using tmp = await tmpdir()
++    const root = path.join(tmp.path, "logs")
++    const run = await ReportRun.create({ root, id: "2026-03-2312-00-00" })
++
++    await Bun.write(path.join(run.dir, "screenshots", "shot-1.png"), "x")
++    await Bun.write(path.join(run.dir, "video", "run.webm"), "x")
++
++    const out = await ReportHTML.generate({ root, id: run.id })
++    const html = await Filesystem.readText(out.index)
++
++    expect(html.includes("Regression Run")).toBe(true)
++    expect(html.includes("screenshots/shot-1.png")).toBe(true)
++    expect(html.includes("video/run.webm")).toBe(true)
++    expect(html.includes("<video")).toBe(true)
++  })
++
++  test("renders warning state when video is missing", async () => {
++    await using tmp = await tmpdir()
++    const root = path.join(tmp.path, "logs")
++    const run = await ReportRun.create({ root, id: "2026-03-2312-00-01" })
++
++    await Bun.write(path.join(run.dir, "screenshots", "shot-1.png"), "x")
++
++    const out = await ReportHTML.generate({ root, id: run.id })
++    const html = await Filesystem.readText(out.index)
++
++    expect(out.warnings.includes("Missing video")).toBe(true)
++    expect(html.includes("No video found.")).toBe(true)
++  })
++})
+diff --git a/packages/opencode/test/report/list.test.ts b/packages/opencode/test/report/list.test.ts
+new file mode 100644
+index 0000000..6315e8f
+--- /dev/null
++++ b/packages/opencode/test/report/list.test.ts
+@@ -0,0 +1,30 @@
++import { describe, expect, test } from "bun:test"
++import path from "path"
++import { tmpdir } from "../fixture/fixture"
++import { ReportRun } from "../../src/report/run"
++import { ReportList } from "../../src/report/list"
++
++describe("ReportList", () => {
++  test("orders runs newest-first", async () => {
++    await using tmp = await tmpdir()
++    const root = path.join(tmp.path, "logs")
++    await ReportRun.create({ root, id: "2026-03-2312-30-00" })
++    await ReportRun.create({ root, id: "2026-03-2312-30-02" })
++    await ReportRun.create({ root, id: "2026-03-2312-30-01" })
++
++    const ids = await ReportList.ids(root)
++    expect(ids).toEqual(["2026-03-2312-30-02", "2026-03-2312-30-01", "2026-03-2312-30-00"])
++  })
++
++  test("keeps corrupt runs and marks issue", async () => {
++    await using tmp = await tmpdir()
++    const root = path.join(tmp.path, "logs")
++    const run = await ReportRun.create({ root, id: "2026-03-2312-31-00" })
++    await Bun.write(path.join(run.dir, "manifest.json"), "{")
++
++    const rows = await ReportList.list(root)
++    expect(rows[0]?.id).toBe(run.id)
++    expect(rows[0]?.status).toBe("partial")
++    expect((rows[0]?.issue?.length ?? 0) > 0).toBe(true)
++  })
++})
+diff --git a/packages/opencode/test/report/manifest.test.ts b/packages/opencode/test/report/manifest.test.ts
+new file mode 100644
+index 0000000..3fef62d
+--- /dev/null
++++ b/packages/opencode/test/report/manifest.test.ts
+@@ -0,0 +1,51 @@
++import { describe, expect, test } from "bun:test"
++import path from "path"
++import { tmpdir } from "../fixture/fixture"
++import { ReportManifest } from "../../src/report/manifest"
++
++describe("ReportManifest", () => {
++  test("writes and reads manifest with defaults", async () => {
++    await using tmp = await tmpdir()
++    const file = path.join(tmp.path, "logs", "run", "manifest.json")
++
++    await ReportManifest.write(file, {
++      run_id: "2026-03-2311-10-00",
++      created_at: "2026-03-23T11:10:00.000Z",
++      artifacts: {
++        html: "./index.html",
++        screenshots: "screenshots/",
++        video: "video",
++      },
++    })
++
++    const data = await ReportManifest.read(file)
++
++    expect(data.run_id).toBe("2026-03-2311-10-00")
++    expect(data.suite).toBe("regression")
++    expect(data.status).toBe("partial")
++    expect(data.summary.total).toBe(0)
++    expect(data.artifacts.html).toBe("index.html")
++    expect(data.artifacts.screenshots).toBe("screenshots")
++    expect(data.artifacts.video).toBe("video")
++  })
++
++  test("rejects malformed manifest and unsafe paths", async () => {
++    await using tmp = await tmpdir()
++    const file = path.join(tmp.path, "logs", "run", "manifest.json")
++
++    await expect(
++      ReportManifest.write(file, {
++        run_id: "",
++        created_at: "2026-03-23T11:10:00.000Z",
++      }),
++    ).rejects.toThrow("invalid manifest: missing run_id")
++
++    await expect(
++      ReportManifest.write(file, {
++        run_id: "2026-03-2311-10-00",
++        created_at: "2026-03-23T11:10:00.000Z",
++        artifacts: { html: "../../etc/passwd" },
++      }),
++    ).rejects.toThrow("invalid artifact path")
++  })
++})
+diff --git a/packages/opencode/test/report/routes.test.ts b/packages/opencode/test/report/routes.test.ts
+new file mode 100644
+index 0000000..49d7f23
+--- /dev/null
++++ b/packages/opencode/test/report/routes.test.ts
+@@ -0,0 +1,101 @@
++import { describe, expect, test } from "bun:test"
++import { Hono } from "hono"
++import path from "path"
++import { tmpdir } from "../fixture/fixture"
++import { ReportRun } from "../../src/report/run"
++import { ReportHTML } from "../../src/report/html"
++import { ReportRoutes } from "../../src/server/routes/report"
++import { Instance } from "../../src/project/instance"
++
++describe("ReportRoutes", () => {
++  test("serves report index, json list, run html, and assets", async () => {
++    await using tmp = await tmpdir()
++    const root = path.join(tmp.path, "logs")
++    const old = await ReportRun.create({ root, id: "2026-03-2312-30-00" })
++    const run = await ReportRun.create({ root, id: "2026-03-2312-30-01" })
++
++    await Bun.write(path.join(run.dir, "screenshots", "shot.png"), "x")
++    await Bun.write(path.join(run.dir, "video", "run.webm"), "x")
++    await ReportHTML.generate({ root, id: old.id })
++    await ReportHTML.generate({ root, id: run.id })
++
++    await Instance.provide({
++      directory: tmp.path,
++      fn: async () => {
++        const app = new Hono().route("/reports", ReportRoutes())
++
++        const list = await app.request("http://test/reports?format=json")
++        expect(list.status).toBe(200)
++        const rows = (await list.json()) as Array<{ id: string; route: string; summary: { total: number } }>
++        expect(rows[0]?.id).toBe(run.id)
++        expect(rows[0]?.route).toBe(`/reports/${run.id}`)
++        expect(rows[1]?.id).toBe(old.id)
++
++        const index = await app.request("http://test/reports")
++        expect(index.status).toBe(200)
++        const htmlIndex = await index.text()
++        expect(htmlIndex.includes("Regression Reports")).toBe(true)
++        expect(htmlIndex.includes(`href=\"/reports/${run.id}\"`)).toBe(true)
++        expect(htmlIndex.includes("Open latest run")).toBe(true)
++        expect(htmlIndex.includes(`<a class="btn latest" href="/reports/${run.id}">Open latest run</a>`)).toBe(true)
++
++        const page = await app.request(`http://test/reports/${run.id}`)
++        expect(page.status).toBe(200)
++        const html = await page.text()
++        expect(html.includes(`Regression Run <code>${run.id}</code>`)).toBe(true)
++
++        const media = await app.request(`http://test/reports/${run.id}/video/run.webm`)
++        expect(media.status).toBe(200)
++      },
++    })
++  })
++
++  test("renders empty state when logs have no runs", async () => {
++    await using tmp = await tmpdir()
++
++    await Instance.provide({
++      directory: tmp.path,
++      fn: async () => {
++        const app = new Hono().route("/reports", ReportRoutes())
++        const page = await app.request("http://test/reports")
++        expect(page.status).toBe(200)
++        const html = await page.text()
++        expect(html.includes("No report runs available yet.")).toBe(true)
++      },
++    })
++  })
++
++  test("renders warning content when run artifacts are missing", async () => {
++    await using tmp = await tmpdir()
++    const root = path.join(tmp.path, "logs")
++    const run = await ReportRun.create({ root, id: "2026-03-2312-30-02" })
++
++    await Instance.provide({
++      directory: tmp.path,
++      fn: async () => {
++        const app = new Hono().route("/reports", ReportRoutes())
++        const page = await app.request(`http://test/reports/${run.id}`)
++        expect(page.status).toBe(200)
++        const html = await page.text()
++        expect(html.includes("No screenshots found.")).toBe(true)
++        expect(html.includes("No video found.")).toBe(true)
++      },
++    })
++  })
++
++  test("rejects traversal attacks on report file route", async () => {
++    await using tmp = await tmpdir()
++    const root = path.join(tmp.path, "logs")
++    const run = await ReportRun.create({ root, id: "2026-03-2312-30-01" })
++    await ReportHTML.generate({ root, id: run.id })
++
++    await Instance.provide({
++      directory: tmp.path,
++      fn: async () => {
++        const app = new Hono().route("/reports", ReportRoutes())
++        const bad = await app.request(`http://test/reports/${run.id}/..%2F..%2Fetc%2Fpasswd`)
++        expect(bad.status).toBe(400)
++      },
++    })
++  })
++})
+diff --git a/packages/opencode/test/report/run.test.ts b/packages/opencode/test/report/run.test.ts
+new file mode 100644
+index 0000000..54ae0e2
+--- /dev/null
++++ b/packages/opencode/test/report/run.test.ts
+@@ -0,0 +1,33 @@
++import { describe, expect, test } from "bun:test"
++import path from "path"
++import { Filesystem } from "../../src/util/filesystem"
++import { tmpdir } from "../fixture/fixture"
++import { ReportRun } from "../../src/report/run"
++
++describe("ReportRun.create", () => {
++  test("creates deterministic run folder tree with manifest", async () => {
++    await using tmp = await tmpdir()
++    const root = path.join(tmp.path, "logs")
++
++    const out = await ReportRun.create({ root })
++
++    expect(out.id).toMatch(/^\d{4}-\d{2}-\d{2}\d{2}-\d{2}-\d{2}$/)
++    expect(await Filesystem.isDir(path.join(root, out.id))).toBe(true)
++    expect(await Filesystem.isDir(path.join(root, out.id, "screenshots"))).toBe(true)
++    expect(await Filesystem.isDir(path.join(root, out.id, "video"))).toBe(true)
++    expect(await Filesystem.exists(path.join(root, out.id, "manifest.json"))).toBe(true)
++
++    const data = await Filesystem.readJson<{ run_id: string; created_at: string }>(path.join(root, out.id, "manifest.json"))
++    expect(data.run_id).toBe(out.id)
++    expect(typeof data.created_at).toBe("string")
++  })
++
++  test("rejects traversal run ids", async () => {
++    await using tmp = await tmpdir()
++    const root = path.join(tmp.path, "logs")
++
++    await expect(ReportRun.create({ root, id: "../../tmp/pwn" })).rejects.toThrow("invalid run id")
++    await expect(ReportRun.create({ root, id: "bad/name" })).rejects.toThrow("invalid run id")
++    await expect(ReportRun.create({ root, id: "bad\\name" })).rejects.toThrow("invalid run id")
++  })
++})
