@@ -302,7 +302,7 @@ impl WorkspaceManager {
         }
 
         if zshrc_missing {
-            let zshrc = "export ZSH=\"$HOME/.oh-my-zsh\"\nZSH_THEME=\"robbyrussell\"\nplugins=(git zsh-autosuggestions zsh-syntax-highlighting zsh-completions)\nsource $ZSH/oh-my-zsh.sh\n";
+            let zshrc = "export ZSH=\"$HOME/.oh-my-zsh\"\nZSH_THEME=\"robbyrussell\"\nplugins=(git zsh-autosuggestions zsh-syntax-highlighting zsh-completions)\nsource $ZSH/oh-my-zsh.sh\n\n# Nested tmux helper - allows attaching to sessions from within tmux\nta() {\n    if [ -n \"$TMUX\" ]; then\n        TMUX= tmux attach -t \"$1\"\n    else\n        tmux attach -t \"$1\"\n    fi\n}\n";
             tokio::fs::write(&zshrc_target, zshrc).await?;
             commands.push(CommandResult {
                 command: format!("write {}", zshrc_target.to_string_lossy()),
