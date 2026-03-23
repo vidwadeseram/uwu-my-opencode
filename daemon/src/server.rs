@@ -58,7 +58,15 @@ pub struct WorkspaceResponse {
     pub created_at: String,
     pub browser_url: Option<String>,
     pub terminal_url: Option<String>,
+    pub preview_urls: Vec<PreviewLink>,
     pub size_mb: Option<u64>,
+}
+
+#[derive(Serialize)]
+pub struct PreviewLink {
+    pub local_port: u16,
+    pub local_url: String,
+    pub public_url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -72,6 +80,13 @@ pub struct StartWorkspaceResponse {
 pub struct StopWorkspaceResponse {
     pub workspace: WorkspaceResponse,
     pub commands: Vec<crate::workspace::CommandResult>,
+}
+
+#[derive(Serialize)]
+pub struct TmuxTestLogResponse {
+    pub workspace: WorkspaceResponse,
+    pub sessions: Vec<String>,
+    pub log_file: String,
 }
 
 #[derive(Deserialize)]
@@ -95,7 +110,7 @@ pub struct PreviewResponse {
 
 impl From<&crate::state::Workspace> for WorkspaceResponse {
     fn from(ws: &crate::state::Workspace) -> Self {
-        let terminal_url = Some("/terminal/".to_string());
+        let terminal_url = ws.ttyd_port.map(|port| format!("/terminal/{}/", port));
 
         Self {
             id: ws.id.clone(),
@@ -107,6 +122,7 @@ impl From<&crate::state::Workspace> for WorkspaceResponse {
             created_at: ws.created_at.to_rfc3339(),
             browser_url: None,
             terminal_url,
+            preview_urls: Vec::new(),
             size_mb: None,
         }
     }
@@ -183,6 +199,10 @@ pub fn create_router(ctx: AppContext) -> Router {
         .route("/api/projects", get(list_workspaces))
         .route("/api/projects/{id}/start", post(start_workspace))
         .route("/api/projects/{id}/stop", post(stop_workspace))
+        .route(
+            "/api/projects/{id}/tmux-test-log",
+            post(create_tmux_test_log),
+        )
         .route("/api/projects/{id}", delete(delete_workspace))
         .route("/api/reset-password", post(reset_password))
         .route("/api/commander/send", post(commander_send))
@@ -264,6 +284,14 @@ async fn list_workspaces(
         let mut response = WorkspaceResponse::from(ws);
         response.size_mb = Some(directory_size_bytes(&ws.path).await / (1024 * 1024));
         let tunnels = ctx.state.list_tunnels(&ws.id).await;
+        response.preview_urls = tunnels
+            .iter()
+            .map(|t| PreviewLink {
+                local_port: t.local_port,
+                local_url: format!("http://127.0.0.1:{}", t.local_port),
+                public_url: t.tunnel_url.clone(),
+            })
+            .collect();
         response.browser_url = tunnels.iter().rev().find_map(|t| t.tunnel_url.clone());
         responses.push(response);
     }
@@ -385,7 +413,7 @@ async fn stop_workspace(
         .ok_or_else(|| AppError::NotFound(format!("workspace '{id}' not found")))?;
 
     let manager = WorkspaceManager::new(ctx.config.clone(), ctx.supervisor.clone());
-    let commands = manager.stop_workspace(&ws.name).await?;
+    let commands = manager.stop_workspace(&ws.name, &ws.path).await?;
 
     let tunnels = ctx.state.list_tunnels(&id).await;
     let tunnel_mgr = TunnelManager::new(ctx.config.clone(), ctx.supervisor.clone());
@@ -416,7 +444,7 @@ async fn delete_workspace(
 
     if ws.status == WorkspaceStatus::Running {
         let manager = WorkspaceManager::new(ctx.config.clone(), ctx.supervisor.clone());
-        let _ = manager.stop_workspace(&ws.name).await;
+        let _ = manager.stop_workspace(&ws.name, &ws.path).await;
 
         let tunnels = ctx.state.list_tunnels(&id).await;
         let tunnel_mgr = TunnelManager::new(ctx.config.clone(), ctx.supervisor.clone());
@@ -432,6 +460,37 @@ async fn delete_workspace(
     }
 
     Ok(Json(WorkspaceResponse::from(&ws)))
+}
+
+async fn create_tmux_test_log(
+    State(ctx): State<AppContext>,
+    Path(id): Path<String>,
+) -> Result<Json<TmuxTestLogResponse>, AppError> {
+    sync_state_with_workspace_dirs(&ctx).await?;
+    let ws = resolve_workspace_by_id_or_name(&ctx, &id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("workspace '{id}' not found")))?;
+
+    let manager = WorkspaceManager::new(ctx.config.clone(), ctx.supervisor.clone());
+    let result = manager.create_tmux_test_log(&ws.name, &ws.path).await?;
+
+    let mut workspace = WorkspaceResponse::from(&ws);
+    let tunnels = ctx.state.list_tunnels(&ws.id).await;
+    workspace.preview_urls = tunnels
+        .iter()
+        .map(|t| PreviewLink {
+            local_port: t.local_port,
+            local_url: format!("http://127.0.0.1:{}", t.local_port),
+            public_url: t.tunnel_url.clone(),
+        })
+        .collect();
+    workspace.browser_url = tunnels.iter().rev().find_map(|t| t.tunnel_url.clone());
+
+    Ok(Json(TmuxTestLogResponse {
+        workspace,
+        sessions: result.sessions,
+        log_file: result.log_file,
+    }))
 }
 
 async fn create_preview(

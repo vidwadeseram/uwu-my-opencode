@@ -513,6 +513,41 @@
       topError.textContent = message || "";
     }
 
+    function setGlobalSuccess(message) {
+      topError.className = "success";
+      topError.textContent = message || "";
+    }
+
+    function setGlobalNeutral() {
+      topError.className = "error";
+    }
+
+    function renderProjectUrls(project) {
+      const rows = [];
+      if (project.terminal_url) {
+        rows.push(`Terminal: <a href="${project.terminal_url}" target="_blank" rel="noreferrer">${project.terminal_url}</a>`);
+      }
+
+      const previews = Array.isArray(project.preview_urls) ? project.preview_urls : [];
+      for (const preview of previews) {
+        if (preview && preview.public_url) {
+          rows.push(`Frontend (${preview.local_port}): <a href="${preview.public_url}" target="_blank" rel="noreferrer">${preview.public_url}</a>`);
+        } else if (preview && preview.local_url) {
+          rows.push(`Frontend (${preview.local_port}): <a href="${preview.local_url}" target="_blank" rel="noreferrer">${preview.local_url}</a>`);
+        }
+      }
+
+      if (!rows.length) {
+        if (project.status === "running") {
+          rows.push("No frontend URLs yet. Start your frontend(s), then create previews/tunnels.");
+        } else {
+          rows.push("No URLs yet. Start project to create tmux session and terminal link.");
+        }
+      }
+
+      return rows.map((row) => `<div class="label">${row}</div>`).join("");
+    }
+
     function statusPercent(status) {
       if (status === "running") {
         return 100;
@@ -567,7 +602,7 @@
               <div class="row"><strong>${ws.name}</strong><span class="status ${ws.status}">${ws.status}</span></div>
               <div class="label">${ws.path}</div>
               <div class="label">Size: ${ws.size_mb !== null && ws.size_mb !== undefined ? `${ws.size_mb} MB` : "unknown"}</div>
-              <div class="label">${ws.browser_url ? `URL: <a href="${ws.browser_url}" target="_blank" rel="noreferrer">${ws.browser_url}</a>` : "URL: /run-project to publish"}</div>
+              <div class="label">${ws.terminal_url ? `Terminal: <a href="${ws.terminal_url}" target="_blank" rel="noreferrer">${ws.terminal_url}</a>` : "Terminal: unavailable"}</div>
             </div>`)
           .join("");
       }
@@ -577,11 +612,6 @@
       } else {
         projectsList.innerHTML = state.projects
           .map((p) => {
-            const urlLabel = p.browser_url
-              ? `URL: <a href="${p.browser_url}" target="_blank" rel="noreferrer">${p.browser_url}</a>`
-              : (p.status === "running"
-                  ? "URL: running, but no public URL yet (run /run-project to publish)"
-                  : "URL: /run-project to publish");
             return `
             <div class="item" data-id="${p.id}">
               <div class="row">
@@ -590,10 +620,11 @@
               </div>
               <div class="project-meter"><span style="width:${statusPercent(p.status)}%"></span></div>
               <div class="label">${p.path}</div>
-              <div class="label">${urlLabel}</div>
+              ${renderProjectUrls(p)}
               <div class="actions" style="margin-top:0.65rem;">
                 ${p.status === "running" ? "" : '<button data-action="start">Start</button>'}
                 ${p.status === "running" ? '<button data-action="stop">Stop</button>' : ""}
+                <button data-action="tmux-test-log">Create Test Log</button>
                 <button class="danger" data-action="delete">Delete</button>
               </div>
             </div>`;
@@ -634,18 +665,36 @@
       }
 
       try {
+        setGlobalNeutral();
         if (action === "delete") {
           await fetchJson(`/api/projects/${id}`, { method: "DELETE" });
+          await loadDashboard();
+          setGlobalSuccess(`Project ${id} deleted.`);
+          return;
+        }
+
+        if (action === "tmux-test-log") {
+          const result = await fetchJson(`/api/projects/${id}/tmux-test-log`, { method: "POST" });
+          await loadDashboard();
+          const sessions = Array.isArray(result.sessions) ? result.sessions.join(", ") : "none";
+          setGlobalSuccess(`tmux test log created: ${result.log_file} (sessions: ${sessions})`);
+          return;
         } else {
           await fetchJson(`/api/projects/${id}/${action}`, { method: "POST" });
+          await loadDashboard();
+          setGlobalSuccess(`Project ${id} ${action} completed.`);
+          return;
         }
-        await loadDashboard();
       } catch (err) {
+        setGlobalNeutral();
         setGlobalError(`Project action failed: ${err.message}`);
       } finally {
         if (button) {
           button.disabled = false;
-          button.textContent = action.charAt(0).toUpperCase() + action.slice(1);
+          button.textContent =
+            action === "tmux-test-log"
+              ? "Create Test Log"
+              : action.charAt(0).toUpperCase() + action.slice(1);
         }
       }
     }

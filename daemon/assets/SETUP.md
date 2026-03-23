@@ -144,6 +144,61 @@ From the project root:
 tmux attach -t myapp
 ```
 
+## Dashboard start/stop contract
+
+The dashboard "Running Projects" start/stop buttons control tmux sessions directly.
+
+To make this deterministic, keep this contract in each workspace:
+
+- Session bootstrap script: `scripts/dev-tmux-session.sh`
+- Session name env: `MYAPP_TMUX_SESSION_NAME` (default `myapp`)
+- Optional frontend tunnels: create one tunnel per frontend port (3000, 3001, 3002, ...)
+
+When a project is started from the dashboard:
+
+1. The daemon runs `bash scripts/dev-tmux-session.sh` if present.
+2. If no session is created by script, daemon falls back to `uwu-<workspace-name>`.
+3. Dashboard exposes clickable URLs:
+   - tmux terminal URL: `/terminal/<ttyd-port>/`
+   - frontend URLs from active preview tunnels (multiple supported)
+
+When a project is stopped from the dashboard:
+
+- The daemon stops ttyd and kills tmux sessions rooted in the workspace path.
+
+## Multi-frontend URL workflow
+
+If your project runs multiple frontends (for example on ports 3000, 3001, 3002), create previews/tunnels for each frontend port.
+
+The dashboard will render all active frontend links as separate clickable URLs.
+
+Recommended labels in your tmux script:
+
+- `web` -> port 3000
+- `admin` -> port 3001
+- `docs` -> port 3002
+
+This naming makes it easier for agents and humans to match URLs to windows.
+
+## Tmux test log framework
+
+Each workspace should include:
+
+- `scripts/tmux-test-log.sh` to capture tmux pane output into logs
+- `logs/tmux/` directory for output files
+
+Create a test log manually:
+
+```bash
+./scripts/tmux-test-log.sh
+```
+
+The script should produce files like:
+
+- `logs/tmux/tmux-test-<session>-<timestamp>.log`
+
+From the dashboard, "Create Test Log" triggers the same flow through daemon APIs and returns the exact log path.
+
 ## Optional: lazygit session
 
 If you want a lazygit window per service, use the pattern from `dev-tmux-lazygit-session.sh` in allinonepos:

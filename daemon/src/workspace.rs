@@ -1,6 +1,8 @@
 use crate::config::AppConfig;
 use crate::error::AppError;
 use crate::supervisor::ProcessSupervisor;
+use chrono::Utc;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tracing::{info, warn};
@@ -28,6 +30,13 @@ pub struct StartResult {
     pub browser_url: Option<String>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TmuxTestLogResult {
+    pub workspace: String,
+    pub sessions: Vec<String>,
+    pub log_file: String,
+}
+
 impl WorkspaceManager {
     pub fn new(config: AppConfig, supervisor: ProcessSupervisor) -> Self {
         Self { config, supervisor }
@@ -49,6 +58,46 @@ impl WorkspaceManager {
 
     fn ttyd_key(workspace_name: &str) -> String {
         format!("ttyd:{}", workspace_name)
+    }
+
+    fn setup_tmux_script(workspace_path: &Path) -> PathBuf {
+        workspace_path.join("scripts").join("dev-tmux-session.sh")
+    }
+
+    async fn tmux_sessions_for_workspace(
+        &self,
+        workspace_path: &Path,
+    ) -> Result<Vec<String>, AppError> {
+        let tmux = self.tmux().to_string();
+        let output = tokio::process::Command::new(&tmux)
+            .args(["list-sessions", "-F", "#{session_name}\t#{session_path}"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .await
+            .map_err(|e| AppError::CommandFailed(format!("failed to list tmux sessions: {}", e)))?;
+
+        if !output.status.success() {
+            return Ok(Vec::new());
+        }
+
+        let workspace = workspace_path.to_string_lossy();
+        let mut sessions = Vec::new();
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let mut parts = line.splitn(2, '\t');
+            let Some(name) = parts.next() else {
+                continue;
+            };
+            let Some(path) = parts.next() else {
+                continue;
+            };
+            if path == workspace || path.starts_with(&format!("{}/", workspace)) {
+                sessions.push(name.to_string());
+            }
+        }
+        sessions.sort();
+        sessions.dedup();
+        Ok(sessions)
     }
 
     async fn run_cmd(&self, args: &[&str]) -> Result<CommandResult, AppError> {
@@ -324,11 +373,13 @@ impl WorkspaceManager {
         let opencode_dir = dir.join(".opencode");
         let plugins_dir = opencode_dir.join("plugins");
         let commands_dir = opencode_dir.join("command");
+        let scripts_dir = dir.join("scripts");
         let template_file = dir.join("TEMPLATE.md");
         let setup_file = dir.join("SETUP.md");
 
         tokio::fs::create_dir_all(&plugins_dir).await?;
         tokio::fs::create_dir_all(&commands_dir).await?;
+        tokio::fs::create_dir_all(&scripts_dir).await?;
 
         if !tokio::fs::try_exists(&template_file).await? {
             tokio::fs::write(&template_file, TEMPLATE_CONTENT).await?;
@@ -538,6 +589,99 @@ Output format:
 5) Health check result
 "#;
         tokio::fs::write(run_project_file, run_project_content).await?;
+
+        let tmux_test_log_file = commands_dir.join("tmux-test-log.md");
+        let tmux_test_log_content = r#"---
+description: create tmux test logs for this workspace and list saved files
+subtask: false
+---
+
+Create a reproducible tmux test log for this workspace.
+
+Rules:
+- Prefer using the workspace script: `./scripts/tmux-test-log.sh`.
+- If missing, fall back to `tmux capture-pane` commands and write logs under `logs/tmux/`.
+- Include all active tmux sessions rooted in this workspace path.
+- Capture at least the last 2000 lines per window.
+
+Output format:
+1) tmux sessions captured
+2) log file path(s)
+3) timestamp
+4) next verification command to inspect log output
+"#;
+        tokio::fs::write(tmux_test_log_file, tmux_test_log_content).await?;
+
+        let dev_tmux_script = scripts_dir.join("dev-tmux-session.sh");
+        if !tokio::fs::try_exists(&dev_tmux_script).await? {
+            let script = r###"#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION_NAME="${MYAPP_TMUX_SESSION_NAME:-myapp}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if ! command -v tmux >/dev/null 2>&1; then
+  echo "tmux is not installed" >&2
+  exit 1
+fi
+
+if tmux has-session -t "${SESSION_NAME}" 2>/dev/null; then
+  echo "tmux session ${SESSION_NAME} already exists"
+  exit 0
+fi
+
+tmux new-session -d -s "${SESSION_NAME}" -n "app" -c "${ROOT_DIR}"
+tmux send-keys -t "${SESSION_NAME}:app" "echo 'Update scripts/dev-tmux-session.sh with your real service commands from SETUP.md'" C-m
+
+echo "tmux session ${SESSION_NAME} created"
+echo "attach with: tmux attach -t ${SESSION_NAME}"
+"###;
+            tokio::fs::write(&dev_tmux_script, script).await?;
+            let dev_tmux_script_str = dev_tmux_script.to_string_lossy().to_string();
+            let _ = self.run_cmd(&["chmod", "+x", &dev_tmux_script_str]).await;
+        }
+
+        let tmux_log_script = scripts_dir.join("tmux-test-log.sh");
+        if !tokio::fs::try_exists(&tmux_log_script).await? {
+            let script = r###"#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION_NAME="${1:-${MYAPP_TMUX_SESSION_NAME:-myapp}}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOG_DIR="${ROOT_DIR}/logs/tmux"
+mkdir -p "${LOG_DIR}"
+
+STAMP="$(date +%Y%m%d-%H%M%S)"
+OUT="${LOG_DIR}/tmux-test-${SESSION_NAME}-${STAMP}.log"
+
+if ! tmux has-session -t "${SESSION_NAME}" 2>/dev/null; then
+  echo "session not found: ${SESSION_NAME}" >&2
+  exit 1
+fi
+
+{
+  echo "# tmux test log"
+  echo "session=${SESSION_NAME}"
+  echo "timestamp=$(date -Iseconds)"
+  echo
+} >"${OUT}"
+
+while IFS= read -r win; do
+  idx="${win%%$'\t'*}"
+  name="${win#*$'\t'}"
+  {
+    echo "----- ${SESSION_NAME}:${idx} (${name}) -----"
+    tmux capture-pane -pt "${SESSION_NAME}:${idx}.0" -S -2000
+    echo
+  } >>"${OUT}"
+done < <(tmux list-windows -t "${SESSION_NAME}" -F "#{window_index}\t#{window_name}")
+
+echo "created ${OUT}"
+"###;
+            tokio::fs::write(&tmux_log_script, script).await?;
+            let tmux_log_script_str = tmux_log_script.to_string_lossy().to_string();
+            let _ = self.run_cmd(&["chmod", "+x", &tmux_log_script_str]).await;
+        }
 
         Ok(())
     }
@@ -781,44 +925,60 @@ Output format:
         self.create_directory(workspace_path).await?;
 
         let tmux = self.tmux().to_string();
-        let session = Self::tmux_session_name(workspace_name);
+        let default_session = Self::tmux_session_name(workspace_name);
+        let mut session = default_session.clone();
         let path_str = workspace_path.to_string_lossy().to_string();
         let mut commands = Vec::new();
 
-        let has_session = self.run_cmd(&[&tmux, "has-session", "-t", &session]).await;
-        let already_exists = has_session
-            .as_ref()
-            .ok()
-            .and_then(|r| r.success)
-            .unwrap_or(false);
-
-        if already_exists {
-            info!(session = %session, "tmux session already exists, reusing");
-            commands.push(CommandResult {
-                command: format!("{} has-session -t {}", tmux, session),
-                executed: true,
-                success: Some(true),
-                stdout: Some("session already exists".into()),
-                stderr: None,
-            });
-        } else {
+        let setup_script = Self::setup_tmux_script(workspace_path);
+        if setup_script.exists() {
             commands.push(
-                self.run_cmd(&[&tmux, "new-session", "-d", "-s", &session, "-c", &path_str])
+                self.run_cmd(&["bash", &setup_script.to_string_lossy()])
                     .await?,
             );
 
-            commands.push(
-                self.run_cmd(&[
-                    &tmux,
-                    "set-option",
-                    "-t",
-                    &session,
-                    "-p",
-                    "protected-pane",
-                    "on",
-                ])
-                .await?,
-            );
+            let setup_sessions = self.tmux_sessions_for_workspace(workspace_path).await?;
+            if let Some(first) = setup_sessions.first() {
+                session = first.clone();
+            }
+        }
+
+        if session == default_session {
+            let has_session = self.run_cmd(&[&tmux, "has-session", "-t", &session]).await;
+            let already_exists = has_session
+                .as_ref()
+                .ok()
+                .and_then(|r| r.success)
+                .unwrap_or(false);
+
+            if already_exists {
+                info!(session = %session, "tmux session already exists, reusing");
+                commands.push(CommandResult {
+                    command: format!("{} has-session -t {}", tmux, session),
+                    executed: true,
+                    success: Some(true),
+                    stdout: Some("session already exists".into()),
+                    stderr: None,
+                });
+            } else {
+                commands.push(
+                    self.run_cmd(&[&tmux, "new-session", "-d", "-s", &session, "-c", &path_str])
+                        .await?,
+                );
+
+                commands.push(
+                    self.run_cmd(&[
+                        &tmux,
+                        "set-option",
+                        "-t",
+                        &session,
+                        "-p",
+                        "protected-pane",
+                        "on",
+                    ])
+                    .await?,
+                );
+            }
         }
 
         let ttyd_port_str = ttyd_port.to_string();
@@ -886,9 +1046,9 @@ Output format:
     pub async fn stop_workspace(
         &self,
         workspace_name: &str,
+        workspace_path: &Path,
     ) -> Result<Vec<CommandResult>, AppError> {
         let tmux = self.tmux().to_string();
-        let session = Self::tmux_session_name(workspace_name);
         let mut results = Vec::new();
 
         let key = Self::ttyd_key(workspace_name);
@@ -896,11 +1056,103 @@ Output format:
             info!(workspace = %workspace_name, "killed ttyd process");
         }
 
-        results.push(
-            self.run_cmd(&[&tmux, "kill-session", "-t", &session])
-                .await?,
-        );
+        let mut sessions: BTreeSet<String> = self
+            .tmux_sessions_for_workspace(workspace_path)
+            .await?
+            .into_iter()
+            .collect();
+        sessions.insert(Self::tmux_session_name(workspace_name));
+
+        for session in sessions {
+            results.push(
+                self.run_cmd(&[&tmux, "kill-session", "-t", &session])
+                    .await?,
+            );
+        }
 
         Ok(results)
+    }
+
+    pub async fn create_tmux_test_log(
+        &self,
+        workspace_name: &str,
+        workspace_path: &Path,
+    ) -> Result<TmuxTestLogResult, AppError> {
+        let mut sessions: BTreeSet<String> = self
+            .tmux_sessions_for_workspace(workspace_path)
+            .await?
+            .into_iter()
+            .collect();
+        sessions.insert(Self::tmux_session_name(workspace_name));
+        let sessions: Vec<String> = sessions.into_iter().collect();
+
+        let logs_dir = workspace_path.join("logs").join("tmux");
+        tokio::fs::create_dir_all(&logs_dir).await?;
+        let file_name = format!("tmux-test-{}.log", Utc::now().format("%Y%m%d-%H%M%S"));
+        let output_path = logs_dir.join(file_name);
+
+        let mut content = String::new();
+        content.push_str("# tmux test log\n");
+        content.push_str(&format!("workspace={}\n", workspace_name));
+        content.push_str(&format!("created_at={}\n\n", Utc::now().to_rfc3339()));
+
+        let tmux = self.tmux().to_string();
+        for session in &sessions {
+            let windows = tokio::process::Command::new(&tmux)
+                .args([
+                    "list-windows",
+                    "-t",
+                    session,
+                    "-F",
+                    "#{window_index}\t#{window_name}",
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .output()
+                .await
+                .map_err(|e| AppError::CommandFailed(format!("failed to list windows: {}", e)))?;
+
+            if !windows.status.success() {
+                continue;
+            }
+
+            for window in String::from_utf8_lossy(&windows.stdout).lines() {
+                let mut parts = window.splitn(2, '\t');
+                let Some(index) = parts.next() else {
+                    continue;
+                };
+                let window_name = parts.next().unwrap_or("window");
+                let target = format!("{}:{}.0", session, index);
+
+                let pane = tokio::process::Command::new(&tmux)
+                    .args(["capture-pane", "-pt", &target, "-S", "-2000"])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null())
+                    .output()
+                    .await
+                    .map_err(|e| {
+                        AppError::CommandFailed(format!("failed to capture pane: {}", e))
+                    })?;
+
+                if !pane.status.success() {
+                    continue;
+                }
+
+                content.push_str(&format!("----- {} ({}) -----\n", target, window_name));
+                content.push_str(&String::from_utf8_lossy(&pane.stdout));
+                if !content.ends_with('\n') {
+                    content.push('\n');
+                }
+                content.push('\n');
+            }
+        }
+
+        tokio::fs::write(&output_path, content).await?;
+
+        Ok(TmuxTestLogResult {
+            workspace: workspace_name.to_string(),
+            sessions,
+            log_file: output_path.to_string_lossy().to_string(),
+        })
     }
 }
