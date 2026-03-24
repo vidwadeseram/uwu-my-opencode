@@ -9,6 +9,8 @@ use tracing::{info, warn};
 
 const TEMPLATE_CONTENT: &str = include_str!("../assets/TEMPLATE.md");
 const SETUP_CONTENT: &str = include_str!("../assets/SETUP.md");
+const SETUP_GUIDE_CONTENT: &str = include_str!("../assets/SETUP_GUIDE.md");
+const TEST_CASES_CONTENT: &str = include_str!("../assets/TEST_CASES.md");
 
 pub struct WorkspaceManager {
     config: AppConfig,
@@ -396,13 +398,63 @@ impl WorkspaceManager {
         let plugins_dir = opencode_dir.join("plugins");
         let commands_dir = opencode_dir.join("command");
         let scripts_dir = dir.join("scripts");
+        let workspace_docs_dir = dir.join("workspace-docs");
+
         let template_file = dir.join("TEMPLATE.md");
         let setup_file = dir.join("SETUP.md");
+
+        let docs_template_file = workspace_docs_dir.join("TEMPLATE.md");
+        let docs_setup_file = workspace_docs_dir.join("SETUP.md");
+        let docs_test_cases_file = workspace_docs_dir.join("TEST_CASES.md");
+
         let frontends_manifest_file = opencode_dir.join("frontends.json");
 
         tokio::fs::create_dir_all(&plugins_dir).await?;
         tokio::fs::create_dir_all(&commands_dir).await?;
         tokio::fs::create_dir_all(&scripts_dir).await?;
+        tokio::fs::create_dir_all(&workspace_docs_dir).await?;
+
+        if !tokio::fs::try_exists(&docs_template_file).await? {
+            tokio::fs::write(&docs_template_file, TEMPLATE_CONTENT).await?;
+        } else {
+            let existing = tokio::fs::read_to_string(&docs_template_file)
+                .await
+                .unwrap_or_default();
+            if !existing.contains("# Workspace Test Template (Compact)") {
+                tokio::fs::write(&docs_template_file, TEMPLATE_CONTENT).await?;
+            }
+        }
+
+        if !tokio::fs::try_exists(&docs_setup_file).await? {
+            tokio::fs::write(&docs_setup_file, SETUP_GUIDE_CONTENT).await?;
+        } else {
+            let existing = tokio::fs::read_to_string(&docs_setup_file)
+                .await
+                .unwrap_or_default();
+            if existing.contains("This guide explains how to create a tmux session script")
+                && (!existing.contains("## PostgreSQL bootstrap (required before API start)")
+                    || !existing.contains("## API env normalization (required)")
+                    || !existing.contains("## Regression report artifact validation")
+                    || !existing
+                        .contains("## Merchant signup OTP retrieval (commons-api tmux window)")
+                    || !existing.contains("spinner/skeleton/blank placeholder"))
+            {
+                tokio::fs::write(&docs_setup_file, SETUP_GUIDE_CONTENT).await?;
+            }
+        }
+
+        if !tokio::fs::try_exists(&docs_test_cases_file).await? {
+            tokio::fs::write(&docs_test_cases_file, TEST_CASES_CONTENT).await?;
+        } else {
+            let existing = tokio::fs::read_to_string(&docs_test_cases_file)
+                .await
+                .unwrap_or_default();
+            if !existing.contains("## SECTION 1: MERCHANT PORTAL - ALL SECTIONS")
+                || !existing.contains("## SECTION 3: REGISTRATION FLOW")
+            {
+                tokio::fs::write(&docs_test_cases_file, TEST_CASES_CONTENT).await?;
+            }
+        }
 
         if !tokio::fs::try_exists(&template_file).await? {
             tokio::fs::write(&template_file, TEMPLATE_CONTENT).await?;
@@ -410,8 +462,9 @@ impl WorkspaceManager {
             let existing = tokio::fs::read_to_string(&template_file)
                 .await
                 .unwrap_or_default();
-            if existing.contains("logs/{YYYY-MM-DD}{HH-MM-SS}.md")
-                || existing.contains("## RESULTS FILE FORMAT")
+            if existing.contains("## SECTION 1: MERCHANT PORTAL - ALL SECTIONS")
+                || existing.contains("## RESULTS OUTPUT FORMAT")
+                || existing.contains("logs/{YYYY-MM-DD}{HH-MM-SS}.md")
             {
                 tokio::fs::write(&template_file, TEMPLATE_CONTENT).await?;
             }
@@ -424,8 +477,9 @@ impl WorkspaceManager {
                 .await
                 .unwrap_or_default();
             if existing.contains("This guide explains how to create a tmux session script")
-                && (!existing.contains("## PostgreSQL bootstrap (required before API start)")
-                    || !existing.contains("## API env normalization (required)"))
+                || existing.contains("## PostgreSQL bootstrap (required before API start)")
+                || existing.contains("## Start required backend APIs (tmux session contract)")
+                || existing.contains("## Regression report artifact validation")
             {
                 tokio::fs::write(&setup_file, SETUP_CONTENT).await?;
             }
@@ -871,7 +925,7 @@ if tmux has-session -t "${SESSION_NAME}" 2>/dev/null; then
 fi
 
 tmux new-session -d -s "${SESSION_NAME}" -n "app" -c "${ROOT_DIR}"
-tmux send-keys -t "${SESSION_NAME}:app" "echo 'Update scripts/dev-tmux-session.sh with your real service commands from SETUP.md'" C-m
+tmux send-keys -t "${SESSION_NAME}:app" "echo 'Update scripts/dev-tmux-session.sh with your real service commands from workspace-docs/SETUP.md'" C-m
 
 echo "tmux session ${SESSION_NAME} created"
 echo "attach with: tmux attach -t ${SESSION_NAME}"

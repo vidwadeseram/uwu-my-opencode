@@ -10,6 +10,11 @@ Self-hosted browser access to a persistent tmux workspace running forked `openco
   - plugin loader for forked `oh-my-opencode`
   - `/host-project`, `/run-project`, `/tmux-test-log`, and `/publish-frontends` command templates
   - frontend manifest `.opencode/frontends.json`
+- Per-workspace documentation is generated under `workspace-docs/`:
+  - `workspace-docs/TEMPLATE.md` (compact execution contract)
+  - `workspace-docs/SETUP.md` (runtime and OTP/setup guide)
+  - `workspace-docs/TEST_CASES.md` (full test matrix)
+- Root `TEMPLATE.md` and `SETUP.md` are compact pointers to `workspace-docs/`.
 - Per-workspace `scripts` scaffolding is generated automatically:
   - `scripts/dev-tmux-session.sh`
   - `scripts/tmux-test-log.sh`
@@ -30,6 +35,9 @@ This is the agent-facing contract for the dashboard `Start`, `Stop`, `Publish Fr
 - `TMUX Test Log` captures panes from the workspace-named tmux session only and writes logs under `logs/tmux/`.
 - HTML test run links are listed in `/test-reports` and each run opens `/test-reports/{workspace}/{run_id}/index.html`.
 - New workspaces are scaffolded with:
+  - `workspace-docs/TEMPLATE.md`
+  - `workspace-docs/SETUP.md`
+  - `workspace-docs/TEST_CASES.md`
   - `scripts/dev-tmux-session.sh`
   - `scripts/publish-frontends.sh`
   - `scripts/tmux-test-log.sh`
