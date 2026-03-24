@@ -130,6 +130,7 @@ Treat each entry below as mandatory route coverage. URL path is derived by remov
 - `LOG-001` login with phone digits only (`770805444`) and valid password
 - `LOG-002` wrong password validation
 - `LOG-003` non-existent account validation
+- `LOG-004` post-login dashboard readiness (no auth redirect, dashboard heading visible, primary widgets loaded)
 
 ### 3.3 Super Admin Login
 
@@ -291,7 +292,7 @@ Each run must include `logs/{run_id}/coverage.json` with this structure:
 
 Rules:
 
-- `route_total` must match current inventory (`55 + 17 + 2` unless refreshed counts changed).
+- `route_total` must match the current Section 2 inventory count at runtime.
 - `route_covered` must equal `route_total` for an exhaustive run.
 - `button_covered <= button_total`, `form_covered <= form_total`.
 - If `button_total` or `form_total` is `0`, add a note explaining discovery failure and mark run `FAIL`.
@@ -361,6 +362,36 @@ for shot in manifest.get("screenshots", []):
     if not (run_dir / p).is_file():
         errors.append(f"missing screenshot file: {p}")
 
+shot_counts = {}
+for shot in manifest.get("screenshots", []):
+    test_id = (shot.get("test_id") or "").strip()
+    if test_id:
+        key = test_id.lower().replace("_", "-")
+        shot_counts[key] = shot_counts.get(key, 0) + 1
+
+for case in manifest.get("tests", []):
+    status = str(case.get("status") or "").strip().lower()
+    case_id = (case.get("id") or "").strip()
+    if status in {"fail", "blocked"} and case_id:
+        key = case_id.lower().replace("_", "-")
+        if shot_counts.get(key, 0) <= 0:
+            errors.append(f"missing FAIL/BLOCKED screenshot evidence for {case_id}")
+
+dashboard_auth_failures = 0
+for case in manifest.get("tests", []):
+    status = str(case.get("status") or "").strip().lower()
+    if status not in {"fail", "blocked"}:
+        continue
+    blob = " ".join([
+        str(case.get("id") or ""),
+        str(case.get("name") or ""),
+        str(case.get("error") or ""),
+    ]).lower()
+    if "dashboard" in blob and any(k in blob for k in ["redirected to login", "requires authentication", "unauthorized", "401", "403"]):
+        dashboard_auth_failures += 1
+if dashboard_auth_failures > 0:
+    errors.append(f"dashboard/login readiness failed in {dashboard_auth_failures} case(s)")
+
 video_path = ((manifest.get("video") or {}).get("path") or "").strip()
 video_file = run_dir / video_path if video_path else None
 if not video_path or not video_file or not video_file.is_file():
@@ -389,12 +420,14 @@ PY
 - OTP source: only `<workspace-name>:commons-api` tmux window.
 - Avoid over-reliance on direct URL navigation; include realistic menu-click journeys.
 - If `PASS` rows exist with zero screenshots, run is invalid.
+- Every `FAIL` and `BLOCKED` test must have at least one screenshot evidence entry.
+- Dashboard login flow is only valid when post-login screen is the dashboard (not login redirect/auth error).
 
 ## 11) Completion Checklist
 
 Mark run complete only when all are true:
 
-- [ ] 74/74 routes covered (`55 + 17 + 2`)
+- [ ] all Section 2 routes covered (`route_covered == route_total`)
 - [ ] all critical auth flows executed
 - [ ] all visible click paths exercised on each route
 - [ ] all route forms tested with valid + invalid paths

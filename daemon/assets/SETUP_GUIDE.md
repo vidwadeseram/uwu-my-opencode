@@ -562,6 +562,37 @@ blocked = int(summary.get("blocked", 0))
 if total != passed + failed + skipped + blocked:
     errors.append("manifest summary mismatch (total != passed+failed+skipped+blocked)")
 
+tests = manifest.get("tests") or []
+screenshot_counts = {}
+for shot in manifest.get("screenshots", []):
+    test_id = str(shot.get("test_id") or "").strip()
+    if test_id:
+        key = test_id.lower().replace("_", "-")
+        screenshot_counts[key] = screenshot_counts.get(key, 0) + 1
+
+for case in tests:
+    status = str(case.get("status") or "").strip().lower()
+    case_id = str(case.get("id") or "").strip()
+    if status in {"fail", "blocked"} and case_id:
+        key = case_id.lower().replace("_", "-")
+        if screenshot_counts.get(key, 0) <= 0:
+            errors.append(f"missing FAIL/BLOCKED screenshot evidence for {case_id}")
+
+dashboard_auth_failures = 0
+for case in tests:
+    status = str(case.get("status") or "").strip().lower()
+    if status not in {"fail", "blocked"}:
+        continue
+    blob = " ".join([
+        str(case.get("id") or ""),
+        str(case.get("name") or ""),
+        str(case.get("error") or ""),
+    ]).lower()
+    if "dashboard" in blob and any(k in blob for k in ["redirected to login", "requires authentication", "unauthorized", "401", "403"]):
+        dashboard_auth_failures += 1
+if dashboard_auth_failures > 0:
+    errors.append(f"dashboard/login readiness failed in {dashboard_auth_failures} case(s)")
+
 index_text = (run / "index.html").read_text(errors="ignore").lower()
 if "video recording placeholder" in index_text:
     errors.append("index.html contains video placeholder text")
@@ -581,6 +612,8 @@ if button_covered > button_total:
     errors.append("coverage button_covered exceeds button_total")
 if form_covered > form_total:
     errors.append("coverage form_covered exceeds form_total")
+if button_total <= 0 or form_total <= 0:
+    errors.append("coverage button_total/form_total must be > 0 for exhaustive run")
 
 if errors:
     print("FAIL")
@@ -617,6 +650,8 @@ Slash command contract for testing:
 - `/start-test` -> test `main` branch
 - `/start-test <branch-name>` or `/start-test --branch <branch-name>` -> test that branch
 - `/start-test <pr-url> [<pr-url> ...]` -> resolve PR branches and test each target
+- `/start-test --repo <repo-path-or-name> [targets...]` -> run only for one repo inside a multi-repo workspace
+- If workspace root is not a git repo, `/start-test` must discover nested git repos and continue instead of failing immediately.
 
 ## Optional: lazygit session
 

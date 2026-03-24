@@ -10,6 +10,7 @@ Self-hosted browser access to a persistent tmux workspace running forked `openco
   - plugin loader for forked `oh-my-opencode`
   - `/host-project`, `/run-project`, `/start-test`, `/tmux-test-log`, and `/publish-frontends` command templates
   - frontend manifest `.opencode/frontends.json`
+  - `/start-test` supports default `main`, branch/PR targets, and `--repo` filtering for multi-repo workspaces
 - Per-workspace documentation is generated under `workspace-docs/`:
   - `workspace-docs/TEMPLATE.md` (compact execution contract)
   - `workspace-docs/SETUP.md` (runtime and OTP/setup guide)

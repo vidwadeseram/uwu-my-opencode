@@ -424,6 +424,7 @@ impl WorkspaceManager {
                 || !existing.contains("Coverage is only considered complete when route/button/form totals are explicitly recorded")
                 || !existing.contains("11. **Stable capture rule (required before screenshot/pass)**")
                 || !existing.contains("logs/{run_id}/coverage.json")
+                || !existing.contains("--repo` filter for multi-repo workspaces")
             {
                 tokio::fs::write(&docs_template_file, TEMPLATE_CONTENT).await?;
             }
@@ -442,6 +443,8 @@ impl WorkspaceManager {
                 || !existing.contains("spinner/skeleton/blank placeholder")
                 || !existing.contains("Video recording placeholder")
                 || !existing.contains("wrong page name like `junk-qr-payments`")
+                || !existing.contains("/start-test --repo <repo-path-or-name>")
+                || !existing.contains("workspace root is not a git repo")
             {
                 tokio::fs::write(&docs_setup_file, SETUP_GUIDE_CONTENT).await?;
             }
@@ -458,6 +461,8 @@ impl WorkspaceManager {
                 || !existing.contains("ROUTE-<route_key>")
                 || !existing.contains("## 8.1) Required `coverage.json`")
                 || !existing.contains("index.html still contains video placeholder text")
+                || !existing.contains("LOG-004")
+                || !existing.contains("Every `FAIL` and `BLOCKED` test must have at least one screenshot evidence entry.")
             {
                 tokio::fs::write(&docs_test_cases_file, TEST_CASES_CONTENT).await?;
             }
@@ -720,6 +725,7 @@ Argument contract:
 - `/start-test <branch-name>` -> test that branch
 - `/start-test --branch <branch-name>` -> test that branch
 - `/start-test <pr-url> [<pr-url> ...]` -> resolve each PR head branch and test all
+- `/start-test --repo <repo-path-or-name> [targets...]` -> limit execution to one repo inside a multi-repo workspace
 
 Accepted PR URL format:
 - `https://github.com/<owner>/<repo>/pull/<number>`
@@ -729,39 +735,56 @@ Required execution rules:
    - If no targets are provided, use `main`.
    - If branch names and PR URLs are mixed, run in the same order provided.
 
-2) Validate git preconditions before switching targets:
-   - Run `git status --porcelain` and stop with clear output if working tree is dirty.
-   - Record current branch/ref so it can be restored at the end.
+2) Discover git repositories for this workspace.
+   - Do NOT assume workspace root is a git repo.
+   - If `git rev-parse --is-inside-work-tree` succeeds at workspace root, include workspace root as a repo target.
+   - Also discover nested repos with `.git` directories (microservice layout).
+   - If no git repos are found, stop with a clear error that includes scanned paths.
+   - If `--repo` was provided, filter discovered repos to the matching path/name only.
 
-3) Resolve and switch target:
+3) Validate git preconditions per discovered repo before switching targets:
+   - Run `git -C <repo> status --porcelain`; stop on dirty repo and report exact repo path.
+   - Record pre-test state per repo:
+     - `git -C <repo> rev-parse --abbrev-ref HEAD`
+     - `git -C <repo> rev-parse HEAD`
+   - Always restore every repo to its original state at the end.
+
+4) Resolve and switch target with repo-aware mapping:
    - Branch target:
-     - `git fetch origin <branch>`
-     - `git checkout <branch>` if it exists locally, otherwise `git checkout -b <branch> --track origin/<branch>`
+     - Apply branch switch per selected repo.
+     - `git -C <repo> fetch origin <branch>`
+     - `git -C <repo> checkout <branch>` if it exists locally, otherwise `git -C <repo> checkout -b <branch> --track origin/<branch>`
+     - If branch does not exist for a repo, report that repo as skipped with reason.
    - PR URL target:
-     - `gh pr view <url> --json number,headRefName,headRepositoryOwner` to resolve metadata
-     - `gh pr checkout <url>` to switch to the PR branch
+     - Resolve metadata with `gh pr view <url> --json number,headRefName,headRepositoryOwner,headRepository`
+     - Map PR repo (`owner/name`) to a discovered local repo by inspecting `git -C <repo> remote get-url origin`
+     - Run `gh pr checkout <url>` from the mapped repo directory only.
+     - If no repo match exists, mark that PR target as blocked with explicit reason.
 
-4) For each switched target, run full test contract from workspace docs:
+5) For each switched target, run full test contract from workspace docs:
    - Follow `workspace-docs/SETUP.md` preflight and infra checks.
    - Execute exhaustive coverage from `workspace-docs/TEST_CASES.md`.
    - Enforce quality gates:
-     - no PASS on 404/error/loading evidence
-     - no placeholder video text in `index.html`
-     - full-process video file must exist and be non-zero bytes
+      - no PASS on 404/error/loading evidence
+      - no placeholder video text in `index.html`
+      - full-process video file must exist and be non-zero bytes
+      - dashboard after login must be stable before PASS (visible heading + loaded content + no auth redirect)
 
-5) Collect and report run outputs per target:
-   - run id
-   - final status (pass/fail/partial/blocked)
-   - report URL: `/test-reports/{workspace}/{run_id}/index.html`
+6) Collect and report run outputs per target:
+    - run id
+    - final status (pass/fail/partial/blocked)
+    - report URL: `/test-reports/{workspace}/{run_id}/index.html`
+    - repo scope used for the target (single repo or list)
 
-6) Restore original branch/ref at the end, even if one target fails.
+7) Restore original branch/ref for all touched repos, even if one target fails.
 
 Output format:
 1) Parsed targets
-2) Per-target switch result (branch/PR metadata)
-3) Per-target test result (run id, status, report URL)
-4) Final restored branch/ref
-5) Blockers and exact failing command output (if any)
+2) Discovered repos and repo filter result
+3) Per-target switch result (branch/PR metadata + mapped repo)
+4) Per-target test result (run id, status, report URL)
+5) Final restored branch/ref per repo
+6) Blockers and exact failing command output (if any)
 "#;
         tokio::fs::write(start_test_file, start_test_content).await?;
 

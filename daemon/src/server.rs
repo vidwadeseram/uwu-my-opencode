@@ -155,7 +155,15 @@ struct TestReportManifest {
     #[serde(default)]
     screenshots: Vec<TestReportScreenshot>,
     #[serde(default)]
+    video: Option<TestReportVideo>,
+    #[serde(default)]
     blocker: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TestReportVideo {
+    #[serde(default)]
+    path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -905,6 +913,11 @@ async fn workspace_test_runs(ws: &crate::state::Workspace) -> Vec<TestReportRun>
             .ok()
             .and_then(|raw| serde_json::from_str::<TestReportCoverage>(&raw).ok());
 
+        let missing_manifest_screenshot_files =
+            manifest_missing_screenshot_files(&run_dir, manifest.as_ref()).await;
+        let (manifest_video_missing, manifest_video_zero_bytes) =
+            manifest_video_path_flags(&run_dir, manifest.as_ref()).await;
+
         let total = manifest
             .as_ref()
             .and_then(|x| x.summary.as_ref())
@@ -951,12 +964,20 @@ async fn workspace_test_runs(ws: &crate::state::Workspace) -> Vec<TestReportRun>
         } else if screenshot_stats.zero_bytes > 0 {
             issue.push("screenshot artifact has zero-byte file(s)");
         }
+        if missing_manifest_screenshot_files > 0 {
+            issue.push("manifest screenshots[] reference missing file(s)");
+        }
         if !has_video_dir {
             issue.push("missing video/ directory");
         } else if video_stats.files == 0 {
             issue.push("no video files");
         } else if video_stats.zero_bytes > 0 {
             issue.push("video artifact has zero-byte file(s)");
+        }
+        if manifest_video_missing {
+            issue.push("manifest video.path is missing or points to a missing file");
+        } else if manifest_video_zero_bytes {
+            issue.push("manifest video.path points to zero-byte file");
         }
         if !tokio::fs::try_exists(&coverage_path).await.unwrap_or(false) {
             issue.push("missing coverage.json");
@@ -992,6 +1013,9 @@ async fn workspace_test_runs(ws: &crate::state::Workspace) -> Vec<TestReportRun>
             &raw_status,
             &screenshot_stats,
             &video_stats,
+            missing_manifest_screenshot_files,
+            manifest_video_missing,
+            manifest_video_zero_bytes,
         );
 
         let status = normalize_report_status(
@@ -1049,6 +1073,9 @@ fn build_tested_scope_and_quality(
     status: &str,
     screenshot_stats: &ArtifactStats,
     video_stats: &ArtifactStats,
+    missing_manifest_screenshot_files: u64,
+    manifest_video_missing: bool,
+    manifest_video_zero_bytes: bool,
 ) -> (u64, Option<String>, Option<String>) {
     let mut quality = Vec::new();
 
@@ -1108,6 +1135,18 @@ fn build_tested_scope_and_quality(
             "{} video file(s) are zero bytes",
             video_stats.zero_bytes
         ));
+    }
+    if missing_manifest_screenshot_files > 0 {
+        quality.push(format!(
+            "manifest screenshots[] has {} missing file reference(s)",
+            missing_manifest_screenshot_files
+        ));
+    }
+    if manifest_video_missing {
+        quality.push("manifest video.path is missing or invalid".to_string());
+    }
+    if manifest_video_zero_bytes {
+        quality.push("manifest video.path points to zero-byte file".to_string());
     }
     if report_html
         .map(contains_video_placeholder_keyword)
@@ -1200,6 +1239,35 @@ fn build_tested_scope_and_quality(
         .filter_map(|case| case.id.as_deref())
         .map(normalize_test_key)
         .collect();
+
+    let mut screenshot_counts_by_test = std::collections::HashMap::<String, u64>::new();
+    for shot in &manifest.screenshots {
+        if let Some(test_id) = shot.test_id.as_deref() {
+            let key = normalize_test_key(test_id);
+            let count = screenshot_counts_by_test.entry(key).or_insert(0);
+            *count += 1;
+        }
+    }
+
+    let failed_or_blocked_missing_screenshot = manifest
+        .tests
+        .iter()
+        .filter(|case| {
+            case.status
+                .as_deref()
+                .map(|v| v.eq_ignore_ascii_case("fail") || v.eq_ignore_ascii_case("blocked"))
+                .unwrap_or(false)
+        })
+        .filter_map(|case| case.id.as_deref())
+        .map(normalize_test_key)
+        .filter(|id| !screenshot_counts_by_test.contains_key(id))
+        .count() as u64;
+    if failed_or_blocked_missing_screenshot > 0 {
+        quality.push(format!(
+            "{} FAIL/BLOCKED test(s) are missing screenshot evidence",
+            failed_or_blocked_missing_screenshot
+        ));
+    }
 
     let blocked_tests = manifest
         .tests
@@ -1306,6 +1374,32 @@ fn build_tested_scope_and_quality(
         ));
     }
 
+    let dashboard_auth_failures = manifest
+        .tests
+        .iter()
+        .filter(|case| {
+            case.status
+                .as_deref()
+                .map(|v| v.eq_ignore_ascii_case("fail") || v.eq_ignore_ascii_case("blocked"))
+                .unwrap_or(false)
+        })
+        .map(|case| {
+            format!(
+                "{} {} {}",
+                case.id.as_deref().unwrap_or_default(),
+                case.name.as_deref().unwrap_or_default(),
+                case.error.as_deref().unwrap_or_default()
+            )
+        })
+        .filter(|blob| contains_dashboard_keyword(blob) && contains_auth_redirect_keyword(blob))
+        .count() as u64;
+    if dashboard_auth_failures > 0 {
+        quality.push(format!(
+            "{} dashboard/login failure(s) indicate auth redirect or unauthorized state",
+            dashboard_auth_failures
+        ));
+    }
+
     (
         tested_count,
         tested_scope,
@@ -1327,18 +1421,31 @@ fn normalize_report_status(
     has_issue: bool,
     has_quality_warning: bool,
 ) -> String {
-    let mut status = raw_status.trim().to_lowercase();
-    if status.is_empty() {
-        status = if failed > 0 {
-            "fail".to_string()
-        } else if blocked > 0 {
-            "partial".to_string()
-        } else if total > 0 && passed == total {
-            "pass".to_string()
-        } else {
-            "partial".to_string()
-        };
-    }
+    let inferred = if failed > 0 {
+        "fail"
+    } else if blocked > 0 {
+        "partial"
+    } else if total > 0 && passed == total {
+        "pass"
+    } else {
+        "partial"
+    };
+
+    let status = match raw_status.trim().to_lowercase().as_str() {
+        "" => inferred.to_string(),
+        "completed" | "complete" | "done" | "success" | "ok" => inferred.to_string(),
+        "failed" | "error" => "fail".to_string(),
+        "blocked" => "blocked".to_string(),
+        "running" | "in_progress" | "in-progress" | "queued" => "running".to_string(),
+        "pass" | "fail" | "partial" => raw_status.trim().to_lowercase(),
+        other => {
+            if failed > 0 || blocked > 0 || (total > 0 && passed == total) {
+                inferred.to_string()
+            } else {
+                other.to_string()
+            }
+        }
+    };
 
     if !status.eq_ignore_ascii_case("pass") {
         return status;
@@ -1351,6 +1458,9 @@ fn normalize_report_status(
         || blocked > 0
         || (total > 0 && (accounted != total || passed < total))
     {
+        if failed > 0 {
+            return "fail".to_string();
+        }
         return "partial".to_string();
     }
 
@@ -1428,6 +1538,83 @@ fn contains_wrong_page_keyword(text: &str) -> bool {
     ["junk-qr-payments", "junk qr payments", "junkqrpayments"]
         .iter()
         .any(|k| lower.contains(k))
+}
+
+fn contains_dashboard_keyword(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    ["dashboard", "home/dashboard", "home", "merchant portal"]
+        .iter()
+        .any(|k| lower.contains(k))
+}
+
+fn contains_auth_redirect_keyword(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    [
+        "requires authentication",
+        "redirected to login",
+        "unauthorized",
+        "forbidden",
+        "401",
+        "403",
+        "session expired",
+        "not authenticated",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
+}
+
+async fn manifest_missing_screenshot_files(
+    run_dir: &StdPath,
+    manifest: Option<&TestReportManifest>,
+) -> u64 {
+    let Some(manifest) = manifest else {
+        return 0;
+    };
+
+    let mut missing = 0u64;
+    for shot in &manifest.screenshots {
+        let Some(path) = shot.path.as_deref() else {
+            missing += 1;
+            continue;
+        };
+        let trimmed = path.trim();
+        if trimmed.is_empty() {
+            missing += 1;
+            continue;
+        }
+        if !tokio::fs::try_exists(&run_dir.join(trimmed))
+            .await
+            .unwrap_or(false)
+        {
+            missing += 1;
+        }
+    }
+
+    missing
+}
+
+async fn manifest_video_path_flags(
+    run_dir: &StdPath,
+    manifest: Option<&TestReportManifest>,
+) -> (bool, bool) {
+    let Some(manifest) = manifest else {
+        return (false, false);
+    };
+
+    let Some(path) = manifest
+        .video
+        .as_ref()
+        .and_then(|v| v.path.as_deref())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    else {
+        return (true, false);
+    };
+
+    match tokio::fs::metadata(run_dir.join(path)).await {
+        Ok(meta) => (false, meta.len() == 0),
+        Err(_) => (true, false),
+    }
 }
 
 fn normalize_test_key(value: &str) -> String {

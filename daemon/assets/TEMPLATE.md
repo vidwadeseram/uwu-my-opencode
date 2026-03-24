@@ -12,10 +12,8 @@ Use this file as the strict execution contract for `allinonepos` runs.
 
 Every run must produce trustworthy end-to-end coverage across the discovered app surface:
 
-- `pos-web` routes: **55**
-- `pos-super-admin` routes: **17**
-- `pos-customer` routes: **2**
-- Total frontend routes: **74**
+- Route counts are derived from the live inventory in `workspace-docs/TEST_CASES.md` Section 2.
+- Do not hardcode totals in run logic; use runtime inventory + `coverage.json` values.
 
 In addition to route loading, each run must exercise:
 
@@ -78,7 +76,7 @@ Coverage is only considered complete when route/button/form totals are explicitl
 ## Execution Flow (Required)
 
 1. Complete setup checks in `workspace-docs/SETUP.md` (DB, env, ports, tmux, Playwright).
-2. For branch-targeted runs, use `/start-test` argument contract (`main` default, branch, or PR URL list).
+2. For branch-targeted runs, use `/start-test` argument contract (`main` default, branch, PR URL list, and `--repo` filter for multi-repo workspaces).
 3. Bootstrap run artifacts under `logs/{run_id}/` before first test.
 4. Execute coverage plan from `workspace-docs/TEST_CASES.md` for all route groups.
 5. Capture screenshot evidence at every checkpoint and failure.
