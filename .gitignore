@@ -27,3 +27,9 @@ build
 tmp-workspaces/
 state.json
 workspaces/
+
+# Local agent/session artifacts
+.sisyphus/
+
+# macOS metadata
+.DS_Store

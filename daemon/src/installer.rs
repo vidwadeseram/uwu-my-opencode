@@ -155,6 +155,11 @@ pub fn run_install(
             "gh",
             "curl",
             "jq",
+            "direnv",
+            "ripgrep",
+            "fd-find",
+            "postgresql-client",
+            "postgresql",
             "build-essential",
             "nginx",
             "certbot",
@@ -394,6 +399,42 @@ pub fn run_install(
         "installing oh-my-openagent deps",
         &bun_bin,
         &["install", "--cwd", &omo_dir],
+    );
+
+    run(
+        "installing playwright package",
+        "bash",
+        &[
+            "-lc",
+            &format!(
+                "cd {}/packages/opencode && {} add -d playwright",
+                opencode_dir, bun_bin
+            ),
+        ],
+    );
+
+    run_sudo(
+        "installing playwright chromium and system dependencies",
+        &[
+            "bash",
+            "-lc",
+            &format!(
+                "cd {}/packages/opencode && {} x playwright install --with-deps chromium",
+                opencode_dir, bun_bin
+            ),
+        ],
+    );
+
+    run(
+        "verifying playwright installation",
+        "bash",
+        &[
+            "-lc",
+            &format!(
+                "cd {}/packages/opencode && {} x playwright --version",
+                opencode_dir, bun_bin
+            ),
+        ],
     );
 
     let oac_install_dir = format!("{home}/.config/opencode");

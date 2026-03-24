@@ -76,6 +76,111 @@ direnv allow
 
 You only need to run `direnv allow` once per service after the `.envrc` is created.
 
+## PostgreSQL bootstrap (required before API start)
+
+If you see auth errors or missing DB errors, run this from the workspace root (`allinonepos`):
+
+```bash
+set -euo pipefail
+
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-123456}"
+
+# 1) Ensure PostgreSQL is running
+if ! pg_isready -h localhost -p 5432 >/dev/null 2>&1; then
+  sudo systemctl start postgresql || sudo service postgresql start
+fi
+
+# 2) Align postgres user password with .envrc expectation
+sudo -u postgres psql -v ON_ERROR_STOP=1 -d postgres -c "ALTER USER postgres WITH PASSWORD '${POSTGRES_PASSWORD}';"
+
+# 3) Create required databases (idempotent)
+for db in \
+  pos_identity \
+  pos_commons \
+  pos_customer \
+  pos_inventory \
+  pos_loro \
+  pos_payment \
+  pos_super_admin; do
+  exists="$(PGPASSWORD="${POSTGRES_PASSWORD}" psql -h localhost -U postgres -d postgres -Atqc "SELECT 1 FROM pg_database WHERE datname='${db}'" || true)"
+  if [[ "${exists}" != "1" ]]; then
+    PGPASSWORD="${POSTGRES_PASSWORD}" createdb -h localhost -U postgres "${db}"
+  fi
+done
+
+# 4) Apply SQL migrations only on empty schemas
+for entry in \
+  "pos-identity-api:pos_identity" \
+  "pos-commons-api:pos_commons" \
+  "pos-customer-api:pos_customer" \
+  "pos-inventory-api:pos_inventory" \
+  "pos-loro-api:pos_loro" \
+  "pos-payment-api:pos_payment" \
+  "pos-super-admin-api:pos_super_admin"; do
+  service="${entry%%:*}"
+  db="${entry##*:}"
+
+  if [[ ! -d "${service}" ]]; then
+    echo "skip ${service} (directory missing)"
+    continue
+  fi
+
+  if [[ ! -f "${service}/.envrc" && -f "${service}/.env.example" ]]; then
+    cp "${service}/.env.example" "${service}/.envrc"
+  fi
+
+  (cd "${service}" && direnv allow >/dev/null 2>&1 || true)
+
+  if [[ ! -d "${service}/internal/db/migrations" ]]; then
+    echo "skip ${service} migrations (internal/db/migrations missing)"
+    continue
+  fi
+
+  table_count="$(PGPASSWORD="${POSTGRES_PASSWORD}" psql -h localhost -U postgres -d "${db}" -Atqc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'" || echo 0)"
+  if [[ "${table_count}" != "0" ]]; then
+    echo "skip ${service} migration replay (schema already has ${table_count} tables)"
+    continue
+  fi
+
+  shopt -s nullglob
+  files=("${service}/internal/db/migrations"/*.up.sql)
+  shopt -u nullglob
+  for migration in "${files[@]}"; do
+    PGPASSWORD="${POSTGRES_PASSWORD}" psql -h localhost -U postgres -d "${db}" -v ON_ERROR_STOP=1 -f "${migration}"
+  done
+done
+```
+
+Notes:
+
+- If your `.envrc` files use a different password, set `POSTGRES_PASSWORD` to match before running the block.
+- This flow is for local PostgreSQL on `localhost:5432`.
+- Migrations are only auto-replayed when the target schema is empty.
+
+## Start required backend APIs
+
+After DB bootstrap, start each API in its own terminal/tmux window:
+
+```bash
+cd pos-identity-api && direnv allow && air
+cd pos-commons-api && direnv allow && air
+cd pos-customer-api && direnv allow && air
+cd pos-inventory-api && direnv allow && air
+cd pos-loro-api && direnv allow && air
+cd pos-payment-api && direnv allow && air
+cd pos-super-admin-api && direnv allow && air
+```
+
+Expected ports:
+
+- identity-api: `localhost:8000` or `localhost:8001` (depends on local envrc)
+- commons-api: `localhost:8003`
+- customer-api: `localhost:8002`
+- inventory-api: `localhost:8004`
+- loro-api: `localhost:8005`
+- payment-api: `localhost:8006`
+- super-admin-api: `localhost:8008`
+
 ## Tmux session script template
 
 Create a script like `scripts/dev-tmux-session.sh` in your project:

@@ -15,7 +15,9 @@ Self-hosted browser access to a persistent tmux workspace running forked `openco
   - `scripts/tmux-test-log.sh`
   - `scripts/publish-frontends.sh`
 - Dashboard exposes frontend links via `Publish Frontends` (hosted links when tunnels are active, local links as fallback).
+- Dashboard includes `Test Reports` page in navbar at `/test-reports` to show all workspace runs with date, status, success rate, and HTML links.
 - Installer provisions `cloudflared` so hosted frontend publishing is available immediately.
+- Installer provisions Playwright + Chromium (`playwright install --with-deps chromium`) for headless test runs with screenshots and video.
 - ttyd auth is enabled: `admin` / `admin`.
 
 ## Running Projects Contract
@@ -26,13 +28,34 @@ This is the agent-facing contract for the dashboard `Start`, `Stop`, `Publish Fr
 - `Stop` stops ttyd for that workspace and kills the workspace tmux session.
 - `Publish Frontends` reads `.opencode/frontends.json` and publishes each declared port.
 - `TMUX Test Log` captures panes from the workspace-named tmux session only and writes logs under `logs/tmux/`.
+- HTML test run links are listed in `/test-reports` and each run opens `/test-reports/{workspace}/{run_id}/index.html`.
 - New workspaces are scaffolded with:
   - `scripts/dev-tmux-session.sh`
   - `scripts/publish-frontends.sh`
   - `scripts/tmux-test-log.sh`
+  - `scripts/ensure-superadmin.sh`
   - `.opencode/frontends.json`
 
 If hosted URLs are missing after start, run `Publish Frontends` after frontend processes are listening on the declared ports.
+
+## Test Reports Page
+
+- Open `/test-reports` from dashboard navbar.
+- The page lists all workspaces with:
+  - run id
+  - date/time
+  - status badge
+  - success rate (`passed / total`)
+  - HTML report link
+
+Data source expectations per run folder:
+
+- `logs/{run_id}/manifest.json`
+- `logs/{run_id}/index.html`
+- `logs/{run_id}/screenshots/`
+- `logs/{run_id}/video/`
+
+If `manifest.json`, screenshots, or video are missing, the run appears with issue notes.
 
 ## Repository Layout
 
@@ -113,6 +136,9 @@ sudo apt install -y ttyd || true
 # cloudflared (for hosted frontend URLs)
 sudo apt install -y cloudflared || true
 
+# playwright browser dependencies (optional if installer is used)
+sudo apt install -y ca-certificates fonts-liberation libnss3 libatk-bridge2.0-0 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libgbm1 libasound2 || true
+
 # bun
 curl -fsSL https://bun.sh/install | bash
 echo 'export PATH="$HOME/.bun/bin:$PATH"' >> ~/.bashrc
@@ -145,6 +171,10 @@ cd ..
 # install deps for forks
 bun install --cwd opencode
 bun install --cwd oh-my-opencode
+
+# install playwright for headless test screenshots/videos
+bun add -d --cwd opencode/packages/opencode playwright
+bunx --bun --cwd opencode/packages/opencode playwright install --with-deps chromium
 
 # build daemon
 cd daemon

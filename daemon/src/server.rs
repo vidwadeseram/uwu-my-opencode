@@ -109,6 +109,55 @@ struct FrontendDefinition {
     port: u16,
 }
 
+#[derive(Serialize)]
+pub struct TestReportsResponse {
+    pub generated_at: String,
+    pub workspaces: Vec<TestReportsWorkspace>,
+}
+
+#[derive(Serialize)]
+pub struct TestReportsWorkspace {
+    pub workspace_id: String,
+    pub workspace_name: String,
+    pub runs: Vec<TestReportRun>,
+}
+
+#[derive(Serialize)]
+pub struct TestReportRun {
+    pub run_id: String,
+    pub created_at: Option<String>,
+    pub status: String,
+    pub pass_rate: f64,
+    pub total: u64,
+    pub passed: u64,
+    pub failed: u64,
+    pub skipped: u64,
+    pub issue: Option<String>,
+    pub html_url: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TestReportManifest {
+    #[serde(default)]
+    created_at: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    summary: Option<TestReportSummary>,
+}
+
+#[derive(Deserialize)]
+struct TestReportSummary {
+    #[serde(default)]
+    total: u64,
+    #[serde(default)]
+    passed: u64,
+    #[serde(default)]
+    failed: u64,
+    #[serde(default)]
+    skipped: u64,
+}
+
 #[derive(Deserialize)]
 pub struct PreviewRequest {
     #[serde(default = "default_preview_port")]
@@ -199,10 +248,24 @@ pub fn create_router(ctx: AppContext) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/", get(dashboard_index))
+        .route("/test-reports", get(test_reports_index))
+        .route(
+            "/test-reports/{workspace}/{run_id}/index.html",
+            get(test_report_index),
+        )
+        .route(
+            "/test-reports/{workspace}/{run_id}/screenshots/{file}",
+            get(test_report_asset_screenshot),
+        )
+        .route(
+            "/test-reports/{workspace}/{run_id}/video/{file}",
+            get(test_report_asset_video),
+        )
         .route("/commander", get(commander_index))
         .route("/logout", get(logout))
         .nest_service("/static", ServeDir::new(static_dir))
         .route("/api/vm", get(vm_info))
+        .route("/api/test-reports", get(list_test_reports))
         .route(
             "/api/workspaces",
             get(list_workspaces).post(create_workspace),
@@ -274,6 +337,18 @@ async fn commander_index() -> Result<Html<String>, AppError> {
     Ok(Html(html))
 }
 
+async fn test_reports_index() -> Result<Html<String>, AppError> {
+    let page_path = resolve_static_dir().join("test-reports.html");
+    let html = tokio::fs::read_to_string(&page_path).await.map_err(|err| {
+        AppError::NotFound(format!(
+            "test reports page not found at '{}': {}",
+            page_path.display(),
+            err
+        ))
+    })?;
+    Ok(Html(html))
+}
+
 async fn logout() -> impl IntoResponse {
     (
         StatusCode::UNAUTHORIZED,
@@ -310,7 +385,7 @@ async fn list_workspaces(
 
     for ws in &workspaces {
         let mut response = workspace_response_with_links(&ctx, ws).await;
-        response.size_mb = Some(directory_size_bytes(&ws.path).await / (1024 * 1024));
+        response.size_mb = None;
         responses.push(response);
     }
 
@@ -402,6 +477,7 @@ async fn start_workspace(
     }
 
     let manager = WorkspaceManager::new(ctx.config.clone(), ctx.supervisor.clone());
+    manager.setup_workspace_opencode_files(&ws.path).await?;
     let port = ws.opencode_port.unwrap_or(4100);
     let ttyd_port = ws.ttyd_port.unwrap_or(7681);
 
@@ -524,6 +600,76 @@ async fn publish_frontends(
     }))
 }
 
+async fn list_test_reports(
+    State(ctx): State<AppContext>,
+) -> Result<Json<TestReportsResponse>, AppError> {
+    sync_state_with_workspace_dirs(&ctx).await?;
+    let list = ctx.state.list_workspaces().await;
+    let mut out = Vec::with_capacity(list.len());
+
+    for ws in &list {
+        let runs = workspace_test_runs(ws).await;
+        out.push(TestReportsWorkspace {
+            workspace_id: ws.id.clone(),
+            workspace_name: ws.name.clone(),
+            runs,
+        });
+    }
+
+    out.sort_by(|a, b| a.workspace_name.cmp(&b.workspace_name));
+
+    Ok(Json(TestReportsResponse {
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        workspaces: out,
+    }))
+}
+
+async fn test_report_index(
+    State(ctx): State<AppContext>,
+    Path((workspace, run_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let path = resolve_test_report_file(&ctx, &workspace, &run_id, "index.html").await?;
+    let content = tokio::fs::read(path).await?;
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        content,
+    ))
+}
+
+async fn test_report_asset_screenshot(
+    State(ctx): State<AppContext>,
+    Path((workspace, run_id, file)): Path<(String, String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    if !safe_file_name(&file) {
+        return Err(AppError::BadRequest(
+            "invalid screenshot filename".to_string(),
+        ));
+    }
+    let rel = format!("screenshots/{}", file);
+    let path = resolve_test_report_file(&ctx, &workspace, &run_id, &rel).await?;
+    let content = tokio::fs::read(&path).await?;
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, mime_for(&path))],
+        content,
+    ))
+}
+
+async fn test_report_asset_video(
+    State(ctx): State<AppContext>,
+    Path((workspace, run_id, file)): Path<(String, String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    if !safe_file_name(&file) {
+        return Err(AppError::BadRequest("invalid video filename".to_string()));
+    }
+    let rel = format!("video/{}", file);
+    let path = resolve_test_report_file(&ctx, &workspace, &run_id, &rel).await?;
+    let content = tokio::fs::read(&path).await?;
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, mime_for(&path))],
+        content,
+    ))
+}
+
 async fn create_preview(
     State(ctx): State<AppContext>,
     Path(id): Path<String>,
@@ -599,6 +745,192 @@ async fn resolve_workspace_by_id_or_name(
         return Ok(Some(ws));
     }
     Ok(None)
+}
+
+async fn workspace_test_runs(ws: &crate::state::Workspace) -> Vec<TestReportRun> {
+    let root = ws.path.join("logs");
+    let mut entries = match tokio::fs::read_dir(&root).await {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut out = Vec::new();
+    while let Ok(Some(item)) = entries.next_entry().await {
+        let file_type = match item.file_type().await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if !file_type.is_dir() {
+            continue;
+        }
+
+        let run_id = item.file_name().to_string_lossy().to_string();
+        if !is_test_run_id(&run_id) {
+            continue;
+        }
+
+        let run_dir = item.path();
+        let manifest_path = run_dir.join("manifest.json");
+        let index_path = run_dir.join("index.html");
+        let screenshots_dir = run_dir.join("screenshots");
+        let video_dir = run_dir.join("video");
+
+        let has_index = tokio::fs::metadata(&index_path)
+            .await
+            .map(|x| x.is_file())
+            .unwrap_or(false);
+        let has_screenshots = tokio::fs::metadata(&screenshots_dir)
+            .await
+            .map(|x| x.is_dir())
+            .unwrap_or(false);
+        let has_video = tokio::fs::metadata(&video_dir)
+            .await
+            .map(|x| x.is_dir())
+            .unwrap_or(false);
+
+        let manifest = tokio::fs::read_to_string(&manifest_path)
+            .await
+            .ok()
+            .and_then(|raw| serde_json::from_str::<TestReportManifest>(&raw).ok());
+
+        let total = manifest
+            .as_ref()
+            .and_then(|x| x.summary.as_ref())
+            .map(|x| x.total)
+            .unwrap_or(0);
+        let passed = manifest
+            .as_ref()
+            .and_then(|x| x.summary.as_ref())
+            .map(|x| x.passed)
+            .unwrap_or(0);
+        let failed = manifest
+            .as_ref()
+            .and_then(|x| x.summary.as_ref())
+            .map(|x| x.failed)
+            .unwrap_or(0);
+        let skipped = manifest
+            .as_ref()
+            .and_then(|x| x.summary.as_ref())
+            .map(|x| x.skipped)
+            .unwrap_or(0);
+
+        let pass_rate = if total > 0 {
+            ((passed as f64) * 100.0) / (total as f64)
+        } else {
+            0.0
+        };
+
+        let mut issue = Vec::new();
+        if manifest.is_none() {
+            issue.push("missing manifest.json");
+        }
+        if !has_index {
+            issue.push("missing index.html");
+        }
+        if !has_screenshots {
+            issue.push("missing screenshots/ directory");
+        }
+        if !has_video {
+            issue.push("missing video/ directory");
+        }
+
+        let status = manifest
+            .as_ref()
+            .and_then(|x| x.status.clone())
+            .unwrap_or_else(|| {
+                if failed > 0 {
+                    "fail".to_string()
+                } else if total > 0 && passed == total {
+                    "pass".to_string()
+                } else {
+                    "partial".to_string()
+                }
+            });
+
+        out.push(TestReportRun {
+            run_id: run_id.clone(),
+            created_at: manifest.and_then(|x| x.created_at),
+            status,
+            pass_rate,
+            total,
+            passed,
+            failed,
+            skipped,
+            issue: if issue.is_empty() {
+                None
+            } else {
+                Some(issue.join(", "))
+            },
+            html_url: if has_index {
+                Some(format!("/test-reports/{}/{}/index.html", ws.name, run_id))
+            } else {
+                None
+            },
+        });
+    }
+
+    out.sort_by(|a, b| b.run_id.cmp(&a.run_id));
+    out
+}
+
+fn is_test_run_id(v: &str) -> bool {
+    Regex::new(r"^\d{4}-\d{2}-\d{2}\d{2}-\d{2}-\d{2}$")
+        .map(|x| x.is_match(v))
+        .unwrap_or(false)
+}
+
+fn safe_file_name(v: &str) -> bool {
+    !v.is_empty() && !v.contains("..") && !v.contains('/') && !v.contains('\\')
+}
+
+async fn resolve_test_report_file(
+    ctx: &AppContext,
+    workspace: &str,
+    run_id: &str,
+    relative_path: &str,
+) -> Result<PathBuf, AppError> {
+    sync_state_with_workspace_dirs(ctx).await?;
+    let ws = resolve_workspace_by_id_or_name(ctx, workspace)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("workspace '{}' not found", workspace)))?;
+
+    if !is_test_run_id(run_id) {
+        return Err(AppError::BadRequest("invalid test run id".to_string()));
+    }
+    if relative_path.contains("..")
+        || relative_path.starts_with('/')
+        || relative_path.contains('\\')
+    {
+        return Err(AppError::BadRequest("invalid report path".to_string()));
+    }
+
+    let run_dir = ws.path.join("logs").join(run_id);
+    if !run_dir.exists() {
+        return Err(AppError::NotFound("report run not found".to_string()));
+    }
+
+    let target = run_dir.join(relative_path);
+    if !target.exists() {
+        return Err(AppError::NotFound("report file not found".to_string()));
+    }
+
+    Ok(target)
+}
+
+fn mime_for(path: &StdPath) -> &'static str {
+    match path
+        .extension()
+        .and_then(|v| v.to_str())
+        .unwrap_or_default()
+    {
+        "html" => "text/html; charset=utf-8",
+        "json" => "application/json",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webm" => "video/webm",
+        "mp4" => "video/mp4",
+        _ => "application/octet-stream",
+    }
 }
 
 fn frontends_manifest_path(workspace_path: &StdPath) -> PathBuf {
@@ -1054,29 +1386,4 @@ fn replace_wrapper_flag_value(
 
 fn shell_escaped_double_quote(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-async fn directory_size_bytes(path: &StdPath) -> u64 {
-    let mut total = 0_u64;
-    let mut stack = vec![PathBuf::from(path)];
-
-    while let Some(current) = stack.pop() {
-        let mut entries = match tokio::fs::read_dir(&current).await {
-            Ok(entries) => entries,
-            Err(_) => continue,
-        };
-
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let entry_path = entry.path();
-            match entry.metadata().await {
-                Ok(metadata) if metadata.is_file() => {
-                    total = total.saturating_add(metadata.len());
-                }
-                Ok(metadata) if metadata.is_dir() => stack.push(entry_path),
-                _ => {}
-            }
-        }
-    }
-
-    total
 }

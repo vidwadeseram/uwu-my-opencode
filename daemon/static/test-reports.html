@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Workspace Test Reports</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d10;
+      --card: #14181f;
+      --muted: #9ca8b9;
+      --text: #eef3ff;
+      --border: #293243;
+      --ok: #35c86f;
+      --warn: #e5b94d;
+      --bad: #f06a6a;
+      --run: #63a5ff;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      background: radial-gradient(circle at top, #111622, #0b0d10 40%);
+      color: var(--text);
+    }
+
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 20px 14px 28px;
+    }
+
+    .top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .top a {
+      text-decoration: none;
+      border: 1px solid #38517a;
+      color: #d3e4ff;
+      background: #1b2840;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+    }
+
+    .hint {
+      color: var(--muted);
+      margin: 4px 0 14px;
+      font-size: 13px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .ws {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--card);
+      padding: 12px;
+    }
+
+    .ws-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .ws-name {
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+
+    thead th {
+      text-align: left;
+      background: #101722;
+      color: #c4d5f1;
+      padding: 8px 10px;
+      border-bottom: 1px solid #2a3649;
+      font-weight: 600;
+    }
+
+    tbody td {
+      padding: 8px 10px;
+      border-bottom: 1px solid #222c3b;
+      vertical-align: top;
+    }
+
+    tbody tr:last-child td { border-bottom: none; }
+
+    .badge {
+      border-radius: 999px;
+      display: inline-block;
+      padding: 3px 8px;
+      font-size: 11px;
+      border: 1px solid transparent;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-weight: 700;
+    }
+    .status-pass { color: var(--ok); border-color: #2d8c54; }
+    .status-fail { color: var(--bad); border-color: #9f4343; }
+    .status-running { color: var(--run); border-color: #3f72bb; }
+    .status-partial { color: var(--warn); border-color: #9a7b31; }
+    .status-unknown { color: #b0bdcf; border-color: #5f6f86; }
+
+    .link {
+      color: #97c6ff;
+      text-decoration: underline;
+    }
+
+    .empty {
+      color: var(--muted);
+      border: 1px dashed #36445d;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 13px;
+      background: #101521;
+    }
+
+    .err {
+      color: #ff9f9f;
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
+
+    code {
+      background: #0f1521;
+      border: 1px solid #2c394f;
+      border-radius: 5px;
+      padding: 2px 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <h1>Workspace Test Reports</h1>
+      <a href="/">Back to Dashboard</a>
+    </div>
+    <div class="hint">Shows each workspace run with date, status, pass-rate, and direct HTML report links.</div>
+    <div id="err" class="err"></div>
+    <div id="root" class="grid"></div>
+  </div>
+
+  <script>
+    const root = document.getElementById("root")
+    const err = document.getElementById("err")
+
+    function badge(v) {
+      const s = (v || "unknown").toLowerCase()
+      return `<span class="badge status-${s}">${s}</span>`
+    }
+
+    function pct(v) {
+      if (!Number.isFinite(v)) return "0.0%"
+      return `${v.toFixed(1)}%`
+    }
+
+    function t(v) {
+      if (!v) return "unknown"
+      const d = new Date(v)
+      if (Number.isNaN(d.getTime())) return v
+      return d.toLocaleString()
+    }
+
+    function runRow(r) {
+      const detail = `${r.passed}/${r.total} passed • ${r.failed} failed • ${r.skipped} skipped`
+      const issue = r.issue ? `<div class="small">Issue: ${r.issue}</div>` : ""
+      const link = r.html_url
+        ? `<a class="link" href="${r.html_url}" target="_blank" rel="noreferrer">Open HTML</a>`
+        : `<span class="small">missing index.html</span>`
+      return `
+        <tr>
+          <td><code>${r.run_id}</code></td>
+          <td>${t(r.created_at)}</td>
+          <td>${badge(r.status)}</td>
+          <td>${pct(r.pass_rate)}<div class="small">${detail}</div>${issue}</td>
+          <td>${link}</td>
+        </tr>
+      `
+    }
+
+    function wsCard(ws) {
+      if (!Array.isArray(ws.runs) || ws.runs.length === 0) {
+        return `
+          <section class="ws">
+            <div class="ws-head">
+              <div class="ws-name">${ws.workspace_name}</div>
+              <div class="small">0 runs</div>
+            </div>
+            <div class="empty">No HTML test report runs found under <code>logs/</code>.</div>
+          </section>
+        `
+      }
+
+      return `
+        <section class="ws">
+          <div class="ws-head">
+            <div class="ws-name">${ws.workspace_name}</div>
+            <div class="small">${ws.runs.length} runs</div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Run ID</th>
+                <th>Date Time</th>
+                <th>Status</th>
+                <th>Success Rate</th>
+                <th>HTML</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${ws.runs.map(runRow).join("")}
+            </tbody>
+          </table>
+        </section>
+      `
+    }
+
+    async function load() {
+      try {
+        const res = await fetch("/api/test-reports")
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+        const data = await res.json()
+        const list = Array.isArray(data.workspaces) ? data.workspaces : []
+        root.innerHTML = list.map(wsCard).join("")
+      } catch (e) {
+        err.textContent = `Failed to load test reports: ${e.message}`
+      }
+    }
+
+    load()
+  </script>
+</body>
+</html>

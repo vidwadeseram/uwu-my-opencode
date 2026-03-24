@@ -46,6 +46,20 @@ impl WorkspaceManager {
         &self.config.tmux_bin
     }
 
+    fn ttyd_spawn_cwd(&self, workspace_path: Option<&Path>) -> PathBuf {
+        if let Some(path) = workspace_path {
+            return path.to_path_buf();
+        }
+
+        if !self.config.workspace_root.as_os_str().is_empty() {
+            return self.config.workspace_root.clone();
+        }
+
+        std::env::var("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("/"))
+    }
+
     pub async fn create_directory(&self, workspace_path: &Path) -> Result<(), AppError> {
         tokio::fs::create_dir_all(workspace_path).await?;
         info!(path = %workspace_path.display(), "created workspace directory");
@@ -359,7 +373,7 @@ impl WorkspaceManager {
         }
 
         if zshrc_missing {
-            let zshrc = "export ZSH=\"$HOME/.oh-my-zsh\"\nZSH_THEME=\"robbyrussell\"\nplugins=(git zsh-autosuggestions zsh-syntax-highlighting zsh-completions)\nsource $ZSH/oh-my-zsh.sh\n\n# Nested tmux helper - allows attaching to sessions from within tmux\nta() {\n    if [ -n \"$TMUX\" ]; then\n        TMUX= tmux attach -t \"$1\"\n    else\n        tmux attach -t \"$1\"\n    fi\n}\n";
+            let zshrc = "export ZSH=\"$HOME/.oh-my-zsh\"\nZSH_THEME=\"robbyrussell\"\nplugins=(git zsh-autosuggestions zsh-syntax-highlighting zsh-completions)\nif [ -f \"$ZSH/oh-my-zsh.sh\" ]; then\n  source \"$ZSH/oh-my-zsh.sh\"\nfi\nif command -v direnv >/dev/null 2>&1; then\n  eval \"$(direnv hook zsh)\"\nfi\n\n# Nested tmux helper - allows attaching to sessions from within tmux\nta() {\n    if [ -n \"$TMUX\" ]; then\n        TMUX= tmux attach -t \"$1\"\n    else\n        tmux attach -t \"$1\"\n    fi\n}\n";
             tokio::fs::write(&zshrc_target, zshrc).await?;
             commands.push(CommandResult {
                 command: format!("write {}", zshrc_target.to_string_lossy()),
@@ -392,10 +406,28 @@ impl WorkspaceManager {
 
         if !tokio::fs::try_exists(&template_file).await? {
             tokio::fs::write(&template_file, TEMPLATE_CONTENT).await?;
+        } else {
+            let existing = tokio::fs::read_to_string(&template_file)
+                .await
+                .unwrap_or_default();
+            if existing.contains("logs/{YYYY-MM-DD}{HH-MM-SS}.md")
+                || existing.contains("## RESULTS FILE FORMAT")
+            {
+                tokio::fs::write(&template_file, TEMPLATE_CONTENT).await?;
+            }
         }
 
         if !tokio::fs::try_exists(&setup_file).await? {
             tokio::fs::write(&setup_file, SETUP_CONTENT).await?;
+        } else {
+            let existing = tokio::fs::read_to_string(&setup_file)
+                .await
+                .unwrap_or_default();
+            if existing.contains("This guide explains how to create a tmux session script")
+                && !existing.contains("## PostgreSQL bootstrap (required before API start)")
+            {
+                tokio::fs::write(&setup_file, SETUP_CONTENT).await?;
+            }
         }
 
         if !tokio::fs::try_exists(&frontends_manifest_file).await? {
@@ -656,6 +688,26 @@ Output format:
 "#;
         tokio::fs::write(tmux_test_log_file, tmux_test_log_content).await?;
 
+        let ensure_superadmin_file = commands_dir.join("ensure-superadmin.md");
+        let ensure_superadmin_content = r#"---
+description: ensure SuperAdmin account exists in DB and reset password if login fails
+subtask: false
+---
+
+If SuperAdmin login fails, ensure the DB account exists and set a known password.
+
+Flow:
+1) Run `./scripts/ensure-superadmin.sh "SuperAdmin" "Alpha23@$"`.
+2) Confirm script output says account was created or password was reset.
+3) Re-test login with `SuperAdmin` / `Alpha23@$`.
+4) Record exact command output in test logs.
+
+If script fails:
+- Return the exact failing DB command and the missing environment variable.
+- Do not continue admin tests until fixed.
+"#;
+        tokio::fs::write(ensure_superadmin_file, ensure_superadmin_content).await?;
+
         let publish_frontends_script = scripts_dir.join("publish-frontends.sh");
         if !tokio::fs::try_exists(&publish_frontends_script).await? {
             let script = r###"#!/usr/bin/env bash
@@ -715,6 +767,89 @@ echo "done. check links in dashboard Running Projects."
                 .run_cmd(&["chmod", "+x", &publish_frontends_script_str])
                 .await;
         }
+
+        let ensure_superadmin_script = scripts_dir.join("ensure-superadmin.sh");
+        let script = r###"#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+USERNAME="${1:-SuperAdmin}"
+PASSWORD="${2:-Alpha23@$}"
+
+if ! command -v psql >/dev/null 2>&1; then
+  echo "psql is not installed" >&2
+  exit 1
+fi
+
+if [[ -z "${POSTGRESQL_DSL:-}" ]]; then
+  if [[ -f "${ROOT_DIR}/pos-super-admin-api/.envrc" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "${ROOT_DIR}/pos-super-admin-api/.envrc"
+    set +a
+  fi
+fi
+
+if [[ -z "${POSTGRESQL_DSL:-}" ]]; then
+  echo "POSTGRESQL_DSL is not set. Export it or define it in pos-super-admin-api/.envrc" >&2
+  exit 1
+fi
+
+if ! psql "${POSTGRESQL_DSL}" -c 'SELECT 1;' >/dev/null 2>&1; then
+  if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q '^postgresql.service'; then
+    systemctl start postgresql || true
+  fi
+fi
+
+if ! psql "${POSTGRESQL_DSL}" -c 'SELECT 1;' >/dev/null 2>&1; then
+  echo "Cannot connect to database using POSTGRESQL_DSL=${POSTGRESQL_DSL}" >&2
+  echo "Ensure PostgreSQL is running and the URL/user/password are correct." >&2
+  exit 1
+fi
+
+psql "${POSTGRESQL_DSL}" -v super_user="${USERNAME}" -v super_pass="${PASSWORD}" <<'SQL'
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+UPDATE users
+SET
+  password = crypt(:'super_pass', gen_salt('bf')),
+  is_deleted = FALSE,
+  updated_at = CURRENT_TIMESTAMP
+WHERE user_name = :'super_user';
+
+INSERT INTO users (
+  id,
+  name,
+  user_name,
+  mobile_number,
+  email,
+  password,
+  is_deleted,
+  created_at,
+  updated_at
+)
+SELECT
+  gen_random_uuid(),
+  'Super Admin',
+  :'super_user',
+  '+94761112224',
+  'superadmin@example.com',
+  crypt(:'super_pass', gen_salt('bf')),
+  FALSE,
+  CURRENT_TIMESTAMP,
+  CURRENT_TIMESTAMP
+WHERE NOT EXISTS (
+  SELECT 1 FROM users WHERE user_name = :'super_user'
+);
+SQL
+
+echo "SuperAdmin account ensured for user '${USERNAME}'."
+"###;
+        tokio::fs::write(&ensure_superadmin_script, script).await?;
+        let ensure_superadmin_script_str = ensure_superadmin_script.to_string_lossy().to_string();
+        let _ = self
+            .run_cmd(&["chmod", "+x", &ensure_superadmin_script_str])
+            .await;
 
         let dev_tmux_script = scripts_dir.join("dev-tmux-session.sh");
         if !tokio::fs::try_exists(&dev_tmux_script).await? {
@@ -966,6 +1101,8 @@ echo "created ${OUT}"
         let ttyd_port_str = ttyd_port.to_string();
         let credential = format!("{}:{}", self.config.ttyd_user, self.config.ttyd_pass);
         let font_family = "JetBrains, SarasaMono, JetBrainsMono Nerd Font, monospace";
+        tokio::fs::create_dir_all(&self.config.workspace_root).await?;
+        let ttyd_cwd = self.ttyd_spawn_cwd(None);
         let ttyd_cmd_str = format!(
             "ttyd --port {} -W -t fontSize=13 -t lineHeight=1 -t 'fontFamily={}' -t titleFixed=uwu\\ workspace --credential {} {} attach -t {}",
             ttyd_port, font_family, credential, tmux, session
@@ -992,6 +1129,7 @@ echo "created ${OUT}"
                     "-t",
                     session,
                 ])
+                .current_dir(&ttyd_cwd)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
@@ -1085,6 +1223,7 @@ echo "created ${OUT}"
         let ttyd_port_str = ttyd_port.to_string();
         let credential = format!("{}:{}", self.config.ttyd_user, self.config.ttyd_pass);
         let font_family = "JetBrains, SarasaMono, JetBrainsMono Nerd Font, monospace";
+        let ttyd_cwd = self.ttyd_spawn_cwd(Some(workspace_path));
         let ttyd_cmd_str = format!(
             "ttyd --port {} -W -t fontSize=13 -t lineHeight=1 -t 'fontFamily={}' --credential {} {} attach -t {}",
             ttyd_port, font_family, credential, tmux, session
@@ -1109,6 +1248,7 @@ echo "created ${OUT}"
                     "-t",
                     &session,
                 ])
+                .current_dir(&ttyd_cwd)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
