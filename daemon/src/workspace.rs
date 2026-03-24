@@ -424,7 +424,8 @@ impl WorkspaceManager {
                 .await
                 .unwrap_or_default();
             if existing.contains("This guide explains how to create a tmux session script")
-                && !existing.contains("## PostgreSQL bootstrap (required before API start)")
+                && (!existing.contains("## PostgreSQL bootstrap (required before API start)")
+                    || !existing.contains("## API env normalization (required)"))
             {
                 tokio::fs::write(&setup_file, SETUP_CONTENT).await?;
             }

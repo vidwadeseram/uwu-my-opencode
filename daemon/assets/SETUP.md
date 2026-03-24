@@ -157,29 +157,97 @@ Notes:
 - This flow is for local PostgreSQL on `localhost:5432`.
 - Migrations are only auto-replayed when the target schema is empty.
 
-## Start required backend APIs
+## API env normalization (required)
 
-After DB bootstrap, start each API in its own terminal/tmux window:
+Before starting APIs, normalize `.envrc` values so agents do not accidentally run services on the wrong ports or wrong DB passwords.
+
+Run from workspace root (`allinonepos`):
 
 ```bash
-cd pos-identity-api && direnv allow && air
-cd pos-commons-api && direnv allow && air
-cd pos-customer-api && direnv allow && air
-cd pos-inventory-api && direnv allow && air
-cd pos-loro-api && direnv allow && air
-cd pos-payment-api && direnv allow && air
-cd pos-super-admin-api && direnv allow && air
+set -euo pipefail
+
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-newpassword}"
+
+sed -i "s|^export PORT=.*|export PORT=8001|" pos-identity-api/.envrc
+sed -i "s|^export GRPC_SERVER_PORT=.*|export GRPC_SERVER_PORT=9001|" pos-identity-api/.envrc
+sed -i "s|^export POSTGRESQL_DSL=.*|export POSTGRESQL_DSL=postgresql://postgres:${POSTGRES_PASSWORD}@localhost:5432/pos_identity?sslmode=disable|" pos-identity-api/.envrc
+
+sed -i "s|^export PORT=.*|export PORT=8003|" pos-commons-api/.envrc
+sed -i "s|^export GRPC_SERVER_PORT=.*|export GRPC_SERVER_PORT=9003|" pos-commons-api/.envrc
+sed -i "s|^export POSTGRESQL_DSL=.*|export POSTGRESQL_DSL=postgresql://postgres:${POSTGRES_PASSWORD}@localhost:5432/pos_commons?sslmode=disable|" pos-commons-api/.envrc
+
+sed -i "s|^export PORT=.*|export PORT=8002|" pos-customer-api/.envrc
+sed -i "s|^export GRPC_SERVER_PORT=.*|export GRPC_SERVER_PORT=9002|" pos-customer-api/.envrc
+sed -i "s|^export POSTGRESDB_URL=.*|export POSTGRESDB_URL=postgresql://postgres:${POSTGRES_PASSWORD}@localhost:5432/pos_customer?sslmode=disable|" pos-customer-api/.envrc
+
+sed -i "s|^export PORT=.*|export PORT=8004|" pos-inventory-api/.envrc
+sed -i "s|^export GRPC_SERVER_PORT=.*|export GRPC_SERVER_PORT=9004|" pos-inventory-api/.envrc
+sed -i "s|^export POSTGRESQL_DSL=.*|export POSTGRESQL_DSL=postgresql://postgres:${POSTGRES_PASSWORD}@localhost:5432/pos_inventory?sslmode=disable|" pos-inventory-api/.envrc
+
+sed -i "s|^export PORT=.*|export PORT=8005|" pos-loro-api/.envrc
+sed -i "s|^export GRPC_SERVER_PORT=.*|export GRPC_SERVER_PORT=9005|" pos-loro-api/.envrc
+sed -i "s|^export POSTGRESDB_URL=.*|export POSTGRESDB_URL=postgresql://postgres:${POSTGRES_PASSWORD}@localhost:5432/pos_loro?sslmode=disable|" pos-loro-api/.envrc
+
+sed -i "s|^export PORT=.*|export PORT=8006|" pos-payment-api/.envrc
+sed -i "s|^export GRPC_SERVER_PORT=.*|export GRPC_SERVER_PORT=9006|" pos-payment-api/.envrc
+sed -i "s|^export POSTGRESDB_URL=.*|export POSTGRESDB_URL=postgresql://postgres:${POSTGRES_PASSWORD}@localhost:5432/pos_payment?sslmode=disable|" pos-payment-api/.envrc
+
+sed -i "s|^export PORT=.*|export PORT=8008|" pos-super-admin-api/.envrc
+sed -i "s|^export GRPC_SERVER_PORT=.*|export GRPC_SERVER_PORT=9008|" pos-super-admin-api/.envrc
+sed -i "s|^export POSTGRESQL_DSL=.*|export POSTGRESQL_DSL=postgresql://postgres:${POSTGRES_PASSWORD}@localhost:5432/pos_super_admin?sslmode=disable|" pos-super-admin-api/.envrc
 ```
 
-Expected ports:
+If your password contains URL-reserved characters, use a URL-encoded password value.
 
-- identity-api: `localhost:8000` or `localhost:8001` (depends on local envrc)
+## Start required backend APIs (tmux session contract)
+
+Do not run APIs in a random shell. Use the workspace tmux session (`allinonepos`) and one window per API.
+If tmux has only the default `app` window, treat that as **not started** (scaffold placeholder only).
+
+```bash
+set -euo pipefail
+
+ROOT_DIR="$(pwd)"
+SESSION_NAME="${MYAPP_TMUX_SESSION_NAME:-$(basename "$ROOT_DIR")}"
+
+tmux has-session -t "${SESSION_NAME}" 2>/dev/null || tmux new-session -d -s "${SESSION_NAME}" -n app -c "${ROOT_DIR}"
+
+for pair in \
+  "identity-api:pos-identity-api" \
+  "commons-api:pos-commons-api" \
+  "customer-api:pos-customer-api" \
+  "inventory-api:pos-inventory-api" \
+  "loro-api:pos-loro-api" \
+  "payment-api:pos-payment-api" \
+  "super-admin-api:pos-super-admin-api"; do
+  win="${pair%%:*}"
+  dir="${pair##*:}"
+
+  if tmux list-windows -t "${SESSION_NAME}" -F "#{window_name}" | grep -qx "${win}"; then
+    tmux send-keys -t "${SESSION_NAME}:${win}" C-c
+    tmux send-keys -t "${SESSION_NAME}:${win}" "cd ${ROOT_DIR}/${dir} && direnv allow && direnv exec . air" C-m
+  else
+    tmux new-window -t "${SESSION_NAME}:" -n "${win}" -c "${ROOT_DIR}/${dir}"
+    tmux send-keys -t "${SESSION_NAME}:${win}" "direnv allow && direnv exec . air" C-m
+  fi
+done
+```
+
+Required backend port map:
+
+- identity-api: `localhost:8001`
 - commons-api: `localhost:8003`
 - customer-api: `localhost:8002`
 - inventory-api: `localhost:8004`
 - loro-api: `localhost:8005`
 - payment-api: `localhost:8006`
 - super-admin-api: `localhost:8008`
+
+Validation command:
+
+```bash
+ss -ltnp | grep -E ':(8001|8002|8003|8004|8005|8006|8008)\b'
+```
 
 ## Tmux session script template
 
