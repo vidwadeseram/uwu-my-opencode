@@ -425,6 +425,8 @@ impl WorkspaceManager {
                 || !existing.contains("11. **Stable capture rule (required before screenshot/pass)**")
                 || !existing.contains("logs/{run_id}/coverage.json")
                 || !existing.contains("--repo` filter for multi-repo workspaces")
+                || !existing.contains("Route-visit-only coverage is NOT sufficient")
+                || !existing.contains("FUNC-*")
             {
                 tokio::fs::write(&docs_template_file, TEMPLATE_CONTENT).await?;
             }
@@ -445,6 +447,9 @@ impl WorkspaceManager {
                 || !existing.contains("wrong page name like `junk-qr-payments`")
                 || !existing.contains("/start-test --repo <repo-path-or-name>")
                 || !existing.contains("workspace root is not a git repo")
+                || !existing
+                    .contains("## Test data seeding (required before deep functional tests)")
+                || !existing.contains("ensure-superadmin.sh")
             {
                 tokio::fs::write(&docs_setup_file, SETUP_GUIDE_CONTENT).await?;
             }
@@ -463,6 +468,9 @@ impl WorkspaceManager {
                 || !existing.contains("index.html still contains video placeholder text")
                 || !existing.contains("LOG-004")
                 || !existing.contains("Every `FAIL` and `BLOCKED` test must have at least one screenshot evidence entry.")
+                || !existing.contains("## 12) Deep Functional Test Scenarios")
+                || !existing.contains("FUNC-KYC-006")
+                || !existing.contains("## 13) Functional Test Execution Contract")
             {
                 tokio::fs::write(&docs_test_cases_file, TEST_CASES_CONTENT).await?;
             }

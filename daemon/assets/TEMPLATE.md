@@ -20,8 +20,16 @@ In addition to route loading, each run must exercise:
 - every visible click path (buttons, menu entries, actionable table icons)
 - every form flow (positive + negative validation)
 - core auth flows (login, signup, OTP, reset/password where present)
+- **deep functional workflows** (Section 12 of `workspace-docs/TEST_CASES.md`):
+  - CRUD operations: create, read, update, delete for items, categories, customers, employees
+  - Multi-step flows: full KYC lifecycle, password reset, merchant registration end-to-end
+  - Cross-role flows: merchant submits → super admin approves/rejects → merchant verifies
+  - Form validation: valid AND invalid paths for every form on every route
+  - Transaction/report views: filter, export, detail views
 
-Coverage is only considered complete when route/button/form totals are explicitly recorded in run output.
+**Route-visit-only coverage is NOT sufficient.** Every `FUNC-*` test ID from Section 12 must appear in `manifest.json`. CRUD operations must verify data persistence (create → list shows new entry, edit → reload shows change, delete → entry gone).
+
+Coverage is only considered complete when route/button/form/functional totals are explicitly recorded in run output.
 
 ## Critical Rules (Do Not Break)
 
@@ -57,6 +65,9 @@ Coverage is only considered complete when route/button/form totals are explicitl
    - `status=pass` cannot coexist with failed tests or non-empty blocker
    - `video.path` must point to a real file (`video/full-process.webm` or `.mp4`)
    - `tests[]` must include route-level and action-level entries (route opens, button flows, form submissions)
+   - `tests[]` must include `FUNC-*` entries for deep functional scenarios (Section 12)
+   - CRUD test entries must have before/after screenshots proving data persistence
+   - Cross-role test entries must have screenshots from both role perspectives
 
 9. **tmux isolation**
    - Run project services in workspace session `<workspace-name>` only.
@@ -78,11 +89,13 @@ Coverage is only considered complete when route/button/form totals are explicitl
 1. Complete setup checks in `workspace-docs/SETUP.md` (DB, env, ports, tmux, Playwright).
 2. For branch-targeted runs, use `/start-test` argument contract (`main` default, branch, PR URL list, and `--repo` filter for multi-repo workspaces).
 3. Bootstrap run artifacts under `logs/{run_id}/` before first test.
-4. Execute coverage plan from `workspace-docs/TEST_CASES.md` for all route groups.
-5. Capture screenshot evidence at every checkpoint and failure.
-6. Record one full-process video per run.
-7. Run artifact and manifest integrity validation commands.
-8. Publish final status with explicit pass/fail/blocker reasoning.
+4. Execute auth flows first (login, signup, OTP) — these are prerequisites for functional tests.
+5. Execute deep functional tests from `workspace-docs/TEST_CASES.md` Section 12 in dependency order (Section 13.2).
+6. Execute route-level coverage sweep for any routes not already covered by functional tests.
+7. Capture screenshot evidence at every checkpoint and failure.
+8. Record one full-process video per run.
+9. Run artifact and manifest integrity validation commands.
+10. Publish final status with explicit pass/fail/blocker reasoning.
 
 ## Required Run Artifacts
 

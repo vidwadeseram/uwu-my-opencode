@@ -505,6 +505,41 @@ Start by creating run artifacts first (as defined in `workspace-docs/TEST_CASES.
 
 Also ensure each run writes `coverage.json` so exhaustive route/button/form coverage is auditable.
 
+## Test data seeding (required before deep functional tests)
+
+Deep functional tests (Section 12 of `workspace-docs/TEST_CASES.md`) require test data to exist before CRUD and cross-role flows can execute.
+
+### Super admin account
+
+The super admin account is required for KYC approvals, business name approvals, user/role management, and merchant oversight.
+
+```bash
+# From workspace root
+./scripts/ensure-superadmin.sh "SuperAdmin" "Alpha23@$"
+```
+
+If `scripts/ensure-superadmin.sh` does not exist, create the super admin manually via the super-admin-api database or registration endpoint.
+
+### Merchant test account
+
+A merchant account with phone `+94770805444` should exist for functional tests. If not:
+
+1. Run the full signup flow (FUNC-REG-001) first — this creates the merchant.
+2. Or use an existing account if one is already seeded.
+
+### Test data ordering
+
+Functional tests have dependencies. Execute in this order:
+
+1. **Super admin login** (SAL-001/002) — ensures admin access works
+2. **Merchant registration** (FUNC-REG-001 or use existing) — ensures merchant access
+3. **Merchant login** (LOG-001/004) — verifies merchant can reach dashboard
+4. **Item/Category CRUD** (12.3, 12.4) — creates data for transaction/report views
+5. **Customer CRUD** (12.5) — creates data for customer-related flows
+6. **Employee CRUD** (12.1) — populates employee list
+7. **KYC flow** (12.6) — requires both merchant and super admin accounts
+8. **Everything else** — reports, billing, settings, transactions
+
 ```bash
 set -euo pipefail
 
