@@ -8,7 +8,7 @@ Self-hosted browser access to a persistent tmux workspace running forked `openco
 - Running Projects `Start`/`Stop` controls tmux sessions named after the workspace (example: workspace `test` -> tmux session `test`).
 - Per-workspace `.opencode` files are generated automatically:
   - plugin loader for forked `oh-my-opencode`
-  - `/host-project`, `/run-project`, `/tmux-test-log`, and `/publish-frontends` command templates
+  - `/host-project`, `/run-project`, `/start-test`, `/tmux-test-log`, and `/publish-frontends` command templates
   - frontend manifest `.opencode/frontends.json`
 - Per-workspace documentation is generated under `workspace-docs/`:
   - `workspace-docs/TEMPLATE.md` (compact execution contract)
@@ -53,7 +53,8 @@ If hosted URLs are missing after start, run `Publish Frontends` after frontend p
   - run id
   - date/time
   - status badge
-  - success rate (`passed / total`)
+  - success rate (`passed / total`) with blocked count visibility
+  - tested scope + evidence quality warnings
   - HTML report link
 
 Data source expectations per run folder:

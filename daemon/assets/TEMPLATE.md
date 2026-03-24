@@ -40,6 +40,7 @@ Coverage is only considered complete when route/button/form totals are explicitl
 
 4. **No false PASS evidence**
    - `PASS` is invalid if screenshot/video evidence shows `404`, `Not Found`, wrong page, loading-only state, skeleton-only state, spinner-only state, or app error page.
+   - `PASS` is also invalid when screenshots are taken before page stability (partial render, unresolved async data, or route transition in progress).
 
 5. **Page identity guard**
    - Verify both URL path and heading before marking `PASS`.
@@ -54,7 +55,7 @@ Coverage is only considered complete when route/button/form totals are explicitl
    - Before executing tests, create `logs/{run_id}/index.html`, `logs/{run_id}/manifest.json`, `logs/{run_id}/screenshots/`, and `logs/{run_id}/video/`.
 
 8. **Manifest integrity required**
-   - `summary.total = passed + failed + skipped`
+   - `summary.total = passed + failed + skipped + blocked`
    - `status=pass` cannot coexist with failed tests or non-empty blocker
    - `video.path` must point to a real file (`video/full-process.webm` or `.mp4`)
    - `tests[]` must include route-level and action-level entries (route opens, button flows, form submissions)
@@ -66,16 +67,24 @@ Coverage is only considered complete when route/button/form totals are explicitl
 10. **Media requirements**
     - HTML report must show clickable screenshot links + previews.
     - HTML report must contain playable `<video controls>` + direct video link.
+    - HTML report must not contain placeholder text such as `Video recording placeholder`.
+    - Video artifact file must be non-zero bytes.
+
+11. **Stable capture rule (required before screenshot/pass)**
+    - Wait for route + key heading + primary content area to be visible before screenshot.
+    - Wait for loading indicators to disappear before screenshot (`loading`, `spinner`, `skeleton`, `shimmer`).
+    - If page never stabilizes within timeout, mark case `FAIL` with reason `unstable-loading-state`.
 
 ## Execution Flow (Required)
 
 1. Complete setup checks in `workspace-docs/SETUP.md` (DB, env, ports, tmux, Playwright).
-2. Bootstrap run artifacts under `logs/{run_id}/` before first test.
-3. Execute coverage plan from `workspace-docs/TEST_CASES.md` for all route groups.
-4. Capture screenshot evidence at every checkpoint and failure.
-5. Record one full-process video per run.
-6. Run artifact and manifest integrity validation commands.
-7. Publish final status with explicit pass/fail/blocker reasoning.
+2. For branch-targeted runs, use `/start-test` argument contract (`main` default, branch, or PR URL list).
+3. Bootstrap run artifacts under `logs/{run_id}/` before first test.
+4. Execute coverage plan from `workspace-docs/TEST_CASES.md` for all route groups.
+5. Capture screenshot evidence at every checkpoint and failure.
+6. Record one full-process video per run.
+7. Run artifact and manifest integrity validation commands.
+8. Publish final status with explicit pass/fail/blocker reasoning.
 
 ## Required Run Artifacts
 

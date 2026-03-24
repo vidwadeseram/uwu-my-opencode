@@ -421,11 +421,9 @@ impl WorkspaceManager {
                 .await
                 .unwrap_or_default();
             if !existing.contains("# Workspace Test Template (Compact)")
-                || !existing.contains("6. **Run bootstrap is mandatory**")
-                || !existing.contains("7. **tmux session isolation**")
-                || !existing.contains("8. **Merchant signup terms checkbox**")
-                || !existing.contains("9. **Infra retry policy (no logic changes)**")
-                || !existing.contains("10. **Page identity guard (prevent wrong-page PASS)**")
+                || !existing.contains("Coverage is only considered complete when route/button/form totals are explicitly recorded")
+                || !existing.contains("11. **Stable capture rule (required before screenshot/pass)**")
+                || !existing.contains("logs/{run_id}/coverage.json")
             {
                 tokio::fs::write(&docs_template_file, TEMPLATE_CONTENT).await?;
             }
@@ -437,18 +435,13 @@ impl WorkspaceManager {
             let existing = tokio::fs::read_to_string(&docs_setup_file)
                 .await
                 .unwrap_or_default();
-            if existing.contains("This guide explains how to create a tmux session script")
-                && (!existing.contains("## PostgreSQL bootstrap (required before API start)")
-                    || !existing.contains("## API env normalization (required)")
-                    || !existing.contains("## Regression report artifact validation")
-                    || !existing
-                        .contains("## Merchant signup OTP retrieval (commons-api tmux window)")
-                    || !existing.contains("spinner/skeleton/blank placeholder")
-                    || !existing.contains("missing `index.html`/`manifest.json`")
-                    || !existing.contains("reserved for OpenCode tabs")
-                    || !existing.contains("Terms & Conditions checkbox")
-                    || !existing.contains("gRPC dependency health check (identity signup path)")
-                    || !existing.contains("wrong page name like `junk-qr-payments`"))
+            if !existing.contains("## PostgreSQL bootstrap (required before API start)")
+                || !existing.contains("## API env normalization (required)")
+                || !existing.contains("## Regression report artifact validation")
+                || !existing.contains("coverage.json")
+                || !existing.contains("spinner/skeleton/blank placeholder")
+                || !existing.contains("Video recording placeholder")
+                || !existing.contains("wrong page name like `junk-qr-payments`")
             {
                 tokio::fs::write(&docs_setup_file, SETUP_GUIDE_CONTENT).await?;
             }
@@ -460,15 +453,11 @@ impl WorkspaceManager {
             let existing = tokio::fs::read_to_string(&docs_test_cases_file)
                 .await
                 .unwrap_or_default();
-            if !existing.contains("## SECTION 1: MERCHANT PORTAL - ALL SECTIONS")
-                || !existing.contains("## SECTION 3: REGISTRATION FLOW")
-                || !existing.contains("0. **Run bootstrap (must happen before test execution)**")
-                || !existing.contains("**tmux isolation requirement:**")
-                || !existing.contains("| RS-008  | Submit signup without Terms checked")
-                || !existing.contains("0.1 **Signup terms checkbox requirement (must enforce)**")
-                || !existing
-                    .contains("0.2 **Infra/port recovery policy (must run before BLOCKED)**")
-                || !existing.contains("0.3 **Page identity verification (must run before PASS)**")
+            if !existing.contains("# allinonepos - Exhaustive Test Cases")
+                || !existing.contains("## 2) Route Inventory (Source of Truth)")
+                || !existing.contains("ROUTE-<route_key>")
+                || !existing.contains("## 8.1) Required `coverage.json`")
+                || !existing.contains("index.html still contains video placeholder text")
             {
                 tokio::fs::write(&docs_test_cases_file, TEST_CASES_CONTENT).await?;
             }
@@ -717,6 +706,64 @@ Output format:
 5) Health check result
 "#;
         tokio::fs::write(run_project_file, run_project_content).await?;
+
+        let start_test_file = commands_dir.join("start-test.md");
+        let start_test_content = r#"---
+description: run exhaustive tests on main, a branch, or PR URL branches and return report links
+subtask: false
+---
+
+Start an exhaustive regression test workflow for this workspace.
+
+Argument contract:
+- `/start-test` -> default target branch: `main`
+- `/start-test <branch-name>` -> test that branch
+- `/start-test --branch <branch-name>` -> test that branch
+- `/start-test <pr-url> [<pr-url> ...]` -> resolve each PR head branch and test all
+
+Accepted PR URL format:
+- `https://github.com/<owner>/<repo>/pull/<number>`
+
+Required execution rules:
+1) Parse targets from arguments in order.
+   - If no targets are provided, use `main`.
+   - If branch names and PR URLs are mixed, run in the same order provided.
+
+2) Validate git preconditions before switching targets:
+   - Run `git status --porcelain` and stop with clear output if working tree is dirty.
+   - Record current branch/ref so it can be restored at the end.
+
+3) Resolve and switch target:
+   - Branch target:
+     - `git fetch origin <branch>`
+     - `git checkout <branch>` if it exists locally, otherwise `git checkout -b <branch> --track origin/<branch>`
+   - PR URL target:
+     - `gh pr view <url> --json number,headRefName,headRepositoryOwner` to resolve metadata
+     - `gh pr checkout <url>` to switch to the PR branch
+
+4) For each switched target, run full test contract from workspace docs:
+   - Follow `workspace-docs/SETUP.md` preflight and infra checks.
+   - Execute exhaustive coverage from `workspace-docs/TEST_CASES.md`.
+   - Enforce quality gates:
+     - no PASS on 404/error/loading evidence
+     - no placeholder video text in `index.html`
+     - full-process video file must exist and be non-zero bytes
+
+5) Collect and report run outputs per target:
+   - run id
+   - final status (pass/fail/partial/blocked)
+   - report URL: `/test-reports/{workspace}/{run_id}/index.html`
+
+6) Restore original branch/ref at the end, even if one target fails.
+
+Output format:
+1) Parsed targets
+2) Per-target switch result (branch/PR metadata)
+3) Per-target test result (run id, status, report URL)
+4) Final restored branch/ref
+5) Blockers and exact failing command output (if any)
+"#;
+        tokio::fs::write(start_test_file, start_test_content).await?;
 
         let publish_frontends_file = commands_dir.join("publish-frontends.md");
         let publish_frontends_content = r#"---

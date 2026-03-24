@@ -94,10 +94,18 @@
 
     table {
       width: 100%;
+      min-width: 880px;
       border-collapse: collapse;
       overflow: hidden;
       border-radius: 8px;
       font-size: 13px;
+    }
+
+    .table-wrap {
+      max-height: min(62vh, 680px);
+      overflow: auto;
+      border: 1px solid #2a3649;
+      border-radius: 8px;
     }
 
     thead th {
@@ -107,6 +115,9 @@
       padding: 8px 10px;
       border-bottom: 1px solid #2a3649;
       font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 2;
     }
 
     tbody td {
@@ -129,6 +140,7 @@
     }
     .status-pass { color: var(--ok); border-color: #2d8c54; }
     .status-fail { color: var(--bad); border-color: #9f4343; }
+    .status-blocked { color: #ffad6e; border-color: #a25a1f; }
     .status-running { color: var(--run); border-color: #3f72bb; }
     .status-partial { color: var(--warn); border-color: #9a7b31; }
     .status-unknown { color: #b0bdcf; border-color: #5f6f86; }
@@ -219,7 +231,9 @@
     }
 
     function runRow(r) {
-      const detail = `${r.passed}/${r.total} passed • ${r.failed} failed • ${r.skipped} skipped`
+      const blocked = Number.isFinite(r.blocked) ? r.blocked : 0
+      const blockedText = blocked > 0 ? ` • ${blocked} blocked` : ""
+      const detail = `${r.passed}/${r.total} passed • ${r.failed} failed • ${r.skipped} skipped${blockedText}`
       const issue = r.issue ? `<div class="small">Issue: ${esc(r.issue)}</div>` : ""
 
       const testedScope = r.tested_scope
@@ -267,21 +281,23 @@
             <div class="ws-name">${ws.workspace_name}</div>
             <div class="small">${ws.runs.length} runs</div>
           </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Run ID</th>
-                <th>Date Time</th>
-                <th>Status</th>
-                <th>Success Rate</th>
-                <th>Tested / Evidence</th>
-                <th>HTML</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${ws.runs.map(runRow).join("")}
-            </tbody>
-          </table>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Run ID</th>
+                  <th>Date Time</th>
+                  <th>Status</th>
+                  <th>Success Rate</th>
+                  <th>Tested / Evidence</th>
+                  <th>HTML</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${ws.runs.map(runRow).join("")}
+              </tbody>
+            </table>
+          </div>
         </section>
       `
     }

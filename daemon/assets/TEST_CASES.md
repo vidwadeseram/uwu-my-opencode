@@ -13,6 +13,7 @@ A full run is complete only when all of the following are true:
 5. One full-process video is present and playable.
 6. `manifest.json` includes per-test entries (`tests`) and screenshot links.
 7. `coverage.json` records route/button/form totals and covered counts.
+8. `index.html` contains real video embedding/link output, not placeholder messaging.
 
 ## 2) Route Inventory (Source of Truth)
 
@@ -156,10 +157,14 @@ For every route key in Section 2:
 5. For each form on that route:
    - submit valid data path
    - submit one invalid/empty path and confirm validation
-6. Capture at least one stable screenshot after successful state load.
-7. Capture failure screenshot for each failed assertion.
+6. Wait for stable page state before evidence capture:
+   - URL is final
+   - expected heading is visible
+   - loading indicators are gone (`loading`, `spinner`, `skeleton`, `shimmer`)
+7. Capture at least one stable screenshot after successful state load.
+8. Capture failure screenshot for each failed assertion.
 
-Mark route as complete only after steps 1-7 pass.
+Mark route as complete only after steps 1-8 pass.
 
 ## 4.1) Button and Form Coverage IDs (Required)
 
@@ -200,6 +205,7 @@ PASS evidence is invalid when screenshot/video indicates:
 - blank placeholder without loaded content
 - app error screen
 - wrong page heading/URL mismatch
+- placeholder-only video section (`Video recording placeholder` or similar)
 
 When invalid:
 
@@ -218,7 +224,7 @@ cat > "${RUN_DIR}/manifest.json" <<JSON
   "run_id": "${RUN_ID}",
   "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "status": "fail",
-  "summary": { "total": 0, "passed": 0, "failed": 0, "skipped": 0 },
+  "summary": { "total": 0, "passed": 0, "failed": 0, "skipped": 0, "blocked": 0 },
   "blocker": "run started - results pending",
   "tests": [],
   "screenshots": [],
@@ -242,6 +248,7 @@ HTML
 Each finished run must include:
 
 - `summary.total`, `summary.passed`, `summary.failed`, `summary.skipped`
+- `summary.blocked` (required; use 0 if none)
 - `tests[]` entries with `id`, `name`, `status`, `error` (optional)
 - `screenshots[]` entries with `test_id`, `path`, `description`
 - `video.path` set to an actual file
@@ -319,9 +326,10 @@ total = int(summary.get("total", 0))
 passed = int(summary.get("passed", 0))
 failed = int(summary.get("failed", 0))
 skipped = int(summary.get("skipped", 0))
+blocked = int(summary.get("blocked", 0))
 
 errors = []
-if total != passed + failed + skipped:
+if total != passed + failed + skipped + blocked:
     errors.append("summary mismatch")
 
 if total > 0 and len(manifest.get("tests", [])) == 0:
@@ -354,8 +362,15 @@ for shot in manifest.get("screenshots", []):
         errors.append(f"missing screenshot file: {p}")
 
 video_path = ((manifest.get("video") or {}).get("path") or "").strip()
-if not video_path or not (run_dir / video_path).is_file():
+video_file = run_dir / video_path if video_path else None
+if not video_path or not video_file or not video_file.is_file():
     errors.append("video.path does not point to an existing file")
+elif video_file.stat().st_size <= 0:
+    errors.append("video artifact is zero bytes")
+
+index_text = (run_dir / "index.html").read_text(errors="ignore").lower()
+if "video recording placeholder" in index_text:
+    errors.append("index.html still contains video placeholder text")
 
 if errors:
     print("FAIL")
@@ -386,5 +401,7 @@ Mark run complete only when all are true:
 - [ ] `coverage.json` confirms non-zero button/form totals and full route coverage
 - [ ] screenshot quality gate passed
 - [ ] playable full-process video present
+- [ ] full-process video file is non-zero bytes
+- [ ] `index.html` has no video placeholder text
 - [ ] `manifest.json` includes `tests[]` and `screenshots[]`
 - [ ] summary totals are internally consistent

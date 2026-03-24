@@ -132,6 +132,7 @@ pub struct TestReportRun {
     pub passed: u64,
     pub failed: u64,
     pub skipped: u64,
+    pub blocked: u64,
     pub issue: Option<String>,
     pub html_url: Option<String>,
     pub tested_count: u64,
@@ -167,6 +168,30 @@ struct TestReportSummary {
     failed: u64,
     #[serde(default)]
     skipped: u64,
+    #[serde(default)]
+    blocked: u64,
+}
+
+#[derive(Deserialize)]
+struct TestReportCoverage {
+    #[serde(default)]
+    route_total: u64,
+    #[serde(default)]
+    route_covered: u64,
+    #[serde(default)]
+    button_total: u64,
+    #[serde(default)]
+    button_covered: u64,
+    #[serde(default)]
+    form_total: u64,
+    #[serde(default)]
+    form_covered: u64,
+}
+
+#[derive(Default)]
+struct ArtifactStats {
+    files: u64,
+    zero_bytes: u64,
 }
 
 #[derive(Deserialize)]
@@ -842,6 +867,7 @@ async fn workspace_test_runs(ws: &crate::state::Workspace) -> Vec<TestReportRun>
 
         let run_dir = item.path();
         let manifest_path = run_dir.join("manifest.json");
+        let coverage_path = run_dir.join("coverage.json");
         let index_path = run_dir.join("index.html");
         let screenshots_dir = run_dir.join("screenshots");
         let video_dir = run_dir.join("video");
@@ -859,14 +885,25 @@ async fn workspace_test_runs(ws: &crate::state::Workspace) -> Vec<TestReportRun>
             .map(|x| x.is_dir())
             .unwrap_or(false);
 
-        let screenshot_files =
-            count_artifact_files(&screenshots_dir, &["png", "jpg", "jpeg", "webp"]).await;
-        let video_files = count_artifact_files(&video_dir, &["mp4", "webm"]).await;
+        let screenshot_stats =
+            artifact_stats(&screenshots_dir, &["png", "jpg", "jpeg", "webp"]).await;
+        let video_stats = artifact_stats(&video_dir, &["mp4", "webm"]).await;
+
+        let report_html = if has_index {
+            tokio::fs::read_to_string(&index_path).await.ok()
+        } else {
+            None
+        };
 
         let manifest = tokio::fs::read_to_string(&manifest_path)
             .await
             .ok()
             .and_then(|raw| serde_json::from_str::<TestReportManifest>(&raw).ok());
+
+        let coverage = tokio::fs::read_to_string(&coverage_path)
+            .await
+            .ok()
+            .and_then(|raw| serde_json::from_str::<TestReportCoverage>(&raw).ok());
 
         let total = manifest
             .as_ref()
@@ -888,6 +925,11 @@ async fn workspace_test_runs(ws: &crate::state::Workspace) -> Vec<TestReportRun>
             .and_then(|x| x.summary.as_ref())
             .map(|x| x.skipped)
             .unwrap_or(0);
+        let blocked = manifest
+            .as_ref()
+            .and_then(|x| x.summary.as_ref())
+            .map(|x| x.blocked)
+            .unwrap_or(0);
 
         let pass_rate = if total > 0 {
             ((passed as f64) * 100.0) / (total as f64)
@@ -904,21 +946,33 @@ async fn workspace_test_runs(ws: &crate::state::Workspace) -> Vec<TestReportRun>
         }
         if !has_screenshots_dir {
             issue.push("missing screenshots/ directory");
-        } else if screenshot_files == 0 {
+        } else if screenshot_stats.files == 0 {
             issue.push("no screenshot files");
+        } else if screenshot_stats.zero_bytes > 0 {
+            issue.push("screenshot artifact has zero-byte file(s)");
         }
         if !has_video_dir {
             issue.push("missing video/ directory");
-        } else if video_files == 0 {
+        } else if video_stats.files == 0 {
             issue.push("no video files");
+        } else if video_stats.zero_bytes > 0 {
+            issue.push("video artifact has zero-byte file(s)");
+        }
+        if !tokio::fs::try_exists(&coverage_path).await.unwrap_or(false) {
+            issue.push("missing coverage.json");
+        }
+        if total > 0 && total != passed + failed + skipped + blocked {
+            issue.push("summary totals do not add up");
         }
 
-        let status = manifest
+        let raw_status = manifest
             .as_ref()
             .and_then(|x| x.status.clone())
             .unwrap_or_else(|| {
                 if failed > 0 {
                     "fail".to_string()
+                } else if blocked > 0 {
+                    "partial".to_string()
                 } else if total > 0 && passed == total {
                     "pass".to_string()
                 } else {
@@ -928,10 +982,27 @@ async fn workspace_test_runs(ws: &crate::state::Workspace) -> Vec<TestReportRun>
 
         let (tested_count, tested_scope, quality_warning) = build_tested_scope_and_quality(
             manifest.as_ref(),
+            coverage.as_ref(),
+            report_html.as_deref(),
             total,
             passed,
-            &status,
-            screenshot_files,
+            failed,
+            skipped,
+            blocked,
+            &raw_status,
+            &screenshot_stats,
+            &video_stats,
+        );
+
+        let status = normalize_report_status(
+            &raw_status,
+            total,
+            passed,
+            failed,
+            skipped,
+            blocked,
+            !issue.is_empty(),
+            quality_warning.is_some(),
         );
 
         out.push(TestReportRun {
@@ -943,6 +1014,7 @@ async fn workspace_test_runs(ws: &crate::state::Workspace) -> Vec<TestReportRun>
             passed,
             failed,
             skipped,
+            blocked,
             issue: if issue.is_empty() {
                 None
             } else {
@@ -956,8 +1028,8 @@ async fn workspace_test_runs(ws: &crate::state::Workspace) -> Vec<TestReportRun>
             tested_count,
             tested_scope,
             quality_warning,
-            screenshot_files,
-            video_files,
+            screenshot_files: screenshot_stats.files,
+            video_files: video_stats.files,
         });
     }
 
@@ -967,18 +1039,87 @@ async fn workspace_test_runs(ws: &crate::state::Workspace) -> Vec<TestReportRun>
 
 fn build_tested_scope_and_quality(
     manifest: Option<&TestReportManifest>,
+    coverage: Option<&TestReportCoverage>,
+    report_html: Option<&str>,
     total: u64,
     passed: u64,
+    failed: u64,
+    skipped: u64,
+    blocked: u64,
     status: &str,
-    screenshot_files: u64,
+    screenshot_stats: &ArtifactStats,
+    video_stats: &ArtifactStats,
 ) -> (u64, Option<String>, Option<String>) {
     let mut quality = Vec::new();
 
-    let Some(manifest) = manifest else {
-        if passed > 0 && screenshot_files == 0 {
-            quality.push("passes reported without screenshot files".to_string());
+    let coverage_scope = coverage.map(|x| {
+        format!(
+            "routes {}/{}, buttons {}/{}, forms {}/{}",
+            x.route_covered,
+            x.route_total,
+            x.button_covered,
+            x.button_total,
+            x.form_covered,
+            x.form_total
+        )
+    });
+
+    if let Some(coverage) = coverage {
+        if coverage.route_total == 0 {
+            quality.push("coverage route_total is zero".to_string());
         }
-        let tested_scope = if total > 0 {
+        if coverage.route_covered < coverage.route_total {
+            quality.push("coverage route_covered is less than route_total".to_string());
+        }
+        if coverage.button_covered > coverage.button_total {
+            quality.push("coverage button_covered exceeds button_total".to_string());
+        }
+        if coverage.form_covered > coverage.form_total {
+            quality.push("coverage form_covered exceeds form_total".to_string());
+        }
+        if coverage.button_total == 0 || coverage.form_total == 0 {
+            quality.push("button/form coverage totals are zero".to_string());
+        }
+    } else {
+        quality.push("missing coverage.json".to_string());
+    }
+
+    if total > 0 && total != passed + failed + skipped + blocked {
+        quality.push("summary totals do not add up".to_string());
+    }
+    if blocked > 0 {
+        quality.push(format!("{} test(s) blocked", blocked));
+    }
+
+    if passed > 0 && screenshot_stats.files == 0 {
+        quality.push("passes reported without screenshot files".to_string());
+    }
+    if screenshot_stats.zero_bytes > 0 {
+        quality.push(format!(
+            "{} screenshot file(s) are zero bytes",
+            screenshot_stats.zero_bytes
+        ));
+    }
+    if video_stats.files == 0 {
+        quality.push("missing video files".to_string());
+    }
+    if video_stats.zero_bytes > 0 {
+        quality.push(format!(
+            "{} video file(s) are zero bytes",
+            video_stats.zero_bytes
+        ));
+    }
+    if report_html
+        .map(contains_video_placeholder_keyword)
+        .unwrap_or(false)
+    {
+        quality.push("report HTML contains video placeholder text".to_string());
+    }
+
+    let Some(manifest) = manifest else {
+        let tested_scope = if let Some(scope) = coverage_scope {
+            Some(scope)
+        } else if total > 0 {
             Some(format!("{} summarized checks (no per-test list)", total))
         } else {
             None
@@ -1000,7 +1141,7 @@ fn build_tested_scope_and_quality(
         manifest.tests.len() as u64
     };
 
-    let tested_scope = if !manifest.tests.is_empty() {
+    let test_scope = if !manifest.tests.is_empty() {
         let labels: Vec<String> = manifest
             .tests
             .iter()
@@ -1021,11 +1162,33 @@ fn build_tested_scope_and_quality(
         None
     };
 
+    let tested_scope = match (coverage_scope, test_scope) {
+        (Some(a), Some(b)) => Some(format!("{} | {}", a, b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    };
+
     if manifest.tests.is_empty() && total > 0 {
         quality.push("manifest has summary but no test list".to_string());
     }
+    if manifest.screenshots.is_empty() && passed > 0 {
+        quality.push("manifest has passes but no screenshots[] entries".to_string());
+    }
 
-    let pass_ids: Vec<&str> = manifest
+    let blocker_present = manifest
+        .blocker
+        .as_deref()
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false);
+    if blocker_present {
+        quality.push("manifest blocker is present".to_string());
+    }
+    if blocker_present && status.eq_ignore_ascii_case("pass") {
+        quality.push("status is pass while blocker is present".to_string());
+    }
+
+    let pass_ids: Vec<String> = manifest
         .tests
         .iter()
         .filter(|case| {
@@ -1035,7 +1198,22 @@ fn build_tested_scope_and_quality(
                 .unwrap_or(false)
         })
         .filter_map(|case| case.id.as_deref())
+        .map(normalize_test_key)
         .collect();
+
+    let blocked_tests = manifest
+        .tests
+        .iter()
+        .filter(|case| {
+            case.status
+                .as_deref()
+                .map(|v| v.eq_ignore_ascii_case("blocked"))
+                .unwrap_or(false)
+        })
+        .count() as u64;
+    if blocked_tests > 0 && blocked == 0 {
+        quality.push("tests[] has blocked entries but summary.blocked is zero".to_string());
+    }
 
     let mut loading_count = 0u64;
     let mut error_screen_count = 0u64;
@@ -1088,7 +1266,8 @@ fn build_tested_scope_and_quality(
         }
 
         if let Some(test_id) = shot.test_id.as_deref() {
-            if pass_ids.iter().any(|x| *x == test_id)
+            let normalized = normalize_test_key(test_id);
+            if pass_ids.iter().any(|x| x == &normalized)
                 && (loading || error_screen || wrong_page_name)
             {
                 pass_unreliable_count += 1;
@@ -1126,18 +1305,6 @@ fn build_tested_scope_and_quality(
             pass_with_error_text_count
         ));
     }
-    if passed > 0 && screenshot_files == 0 {
-        quality.push("passes reported without screenshot files".to_string());
-    }
-    if manifest
-        .blocker
-        .as_deref()
-        .map(|v| !v.trim().is_empty())
-        .unwrap_or(false)
-        && status.eq_ignore_ascii_case("pass")
-    {
-        quality.push("status is pass while blocker is present".to_string());
-    }
 
     (
         tested_count,
@@ -1148,6 +1315,46 @@ fn build_tested_scope_and_quality(
             Some(quality.join(", "))
         },
     )
+}
+
+fn normalize_report_status(
+    raw_status: &str,
+    total: u64,
+    passed: u64,
+    failed: u64,
+    skipped: u64,
+    blocked: u64,
+    has_issue: bool,
+    has_quality_warning: bool,
+) -> String {
+    let mut status = raw_status.trim().to_lowercase();
+    if status.is_empty() {
+        status = if failed > 0 {
+            "fail".to_string()
+        } else if blocked > 0 {
+            "partial".to_string()
+        } else if total > 0 && passed == total {
+            "pass".to_string()
+        } else {
+            "partial".to_string()
+        };
+    }
+
+    if !status.eq_ignore_ascii_case("pass") {
+        return status;
+    }
+
+    let accounted = passed + failed + skipped + blocked;
+    if has_issue
+        || has_quality_warning
+        || failed > 0
+        || blocked > 0
+        || (total > 0 && (accounted != total || passed < total))
+    {
+        return "partial".to_string();
+    }
+
+    status
 }
 
 fn compact_scope(items: &[String], limit: usize) -> String {
@@ -1165,10 +1372,14 @@ fn contains_loading_keyword(text: &str) -> bool {
     let lower = text.to_lowercase();
     [
         "loading",
+        "still loading",
         "spinner",
         "skeleton",
+        "loader",
         "shimmer",
         "placeholder",
+        "waiting for page",
+        "page not ready",
         "progress-only",
         "in progress",
     ]
@@ -1181,9 +1392,32 @@ fn contains_error_screen_keyword(text: &str) -> bool {
     [
         "404",
         "not found",
+        "cannot get",
+        "failed",
+        "error on",
+        "-error",
+        "connection refused",
+        "service unavailable",
+        "timeout",
+        "500",
+        "502",
+        "503",
+        "504",
         "internal server error",
         "error page",
         "blocked",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
+}
+
+fn contains_video_placeholder_keyword(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    [
+        "video recording placeholder",
+        "full video recording requires playwright video capture setup",
+        "requires playwright video capture setup",
+        "video placeholder",
     ]
     .iter()
     .any(|k| lower.contains(k))
@@ -1196,24 +1430,23 @@ fn contains_wrong_page_keyword(text: &str) -> bool {
         .any(|k| lower.contains(k))
 }
 
-async fn count_artifact_files(dir: &StdPath, allowed_ext: &[&str]) -> u64 {
+fn normalize_test_key(value: &str) -> String {
+    value.trim().to_lowercase().replace('_', "-")
+}
+
+async fn artifact_stats(dir: &StdPath, allowed_ext: &[&str]) -> ArtifactStats {
     let mut entries = match tokio::fs::read_dir(dir).await {
         Ok(v) => v,
-        Err(_) => return 0,
+        Err(_) => return ArtifactStats::default(),
     };
 
-    let mut count = 0u64;
+    let mut out = ArtifactStats::default();
     while let Ok(Some(item)) = entries.next_entry().await {
         let file_type = match item.file_type().await {
             Ok(v) => v,
             Err(_) => continue,
         };
         if !file_type.is_file() {
-            continue;
-        }
-
-        if allowed_ext.is_empty() {
-            count += 1;
             continue;
         }
 
@@ -1224,12 +1457,19 @@ async fn count_artifact_files(dir: &StdPath, allowed_ext: &[&str]) -> u64 {
             .unwrap_or_default()
             .to_lowercase();
 
-        if allowed_ext.iter().any(|e| *e == ext) {
-            count += 1;
+        if !allowed_ext.is_empty() && !allowed_ext.iter().any(|e| *e == ext) {
+            continue;
+        }
+
+        out.files += 1;
+
+        let size = item.metadata().await.map(|m| m.len()).unwrap_or(0);
+        if size == 0 {
+            out.zero_bytes += 1;
         }
     }
 
-    count
+    out
 }
 
 fn is_test_run_id(v: &str) -> bool {

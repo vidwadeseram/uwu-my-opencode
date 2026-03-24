@@ -535,6 +535,7 @@ if not run_id:
 run = pathlib.Path("logs") / run_id
 manifest = json.loads((run / "manifest.json").read_text())
 coverage = json.loads((run / "coverage.json").read_text())
+summary = manifest.get("summary") or {}
 
 errors = []
 for item in manifest.get("screenshots", []):
@@ -547,8 +548,23 @@ for item in manifest.get("screenshots", []):
 v = str((manifest.get("video") or {}).get("path", "")).strip()
 if v.startswith(f"logs/{run_id}/"):
     v = v[len(f"logs/{run_id}/"):]
-if not (run / v).is_file():
+video_file = run / v
+if not video_file.is_file():
     errors.append(f"video.path is not a file: {manifest.get('video')}")
+elif video_file.stat().st_size <= 0:
+    errors.append("video artifact is zero bytes")
+
+total = int(summary.get("total", 0))
+passed = int(summary.get("passed", 0))
+failed = int(summary.get("failed", 0))
+skipped = int(summary.get("skipped", 0))
+blocked = int(summary.get("blocked", 0))
+if total != passed + failed + skipped + blocked:
+    errors.append("manifest summary mismatch (total != passed+failed+skipped+blocked)")
+
+index_text = (run / "index.html").read_text(errors="ignore").lower()
+if "video recording placeholder" in index_text:
+    errors.append("index.html contains video placeholder text")
 
 route_total = int(coverage.get("route_total", 0))
 route_covered = int(coverage.get("route_covered", 0))
@@ -582,6 +598,8 @@ Manual quality gate (required):
 - If a screenshot shows `404`, `Not Found`, or an app error screen, mark that test `FAIL`.
 - If a screenshot only shows loading UI (spinner/skeleton/blank placeholder), do not mark that test `PASS`; recapture after UI stabilizes or mark `FAIL`.
 - Ensure the video section includes a direct clickable file link to `video/full-process.webm` (or `.mp4`).
+- Ensure screenshot capture happens only after route + heading + primary data content are all visible.
+- If `index.html` contains `Video recording placeholder` text, the run is invalid and must be regenerated.
 
 ## New workspace scaffolding contract
 
@@ -593,6 +611,12 @@ When a workspace is created through daemon APIs, these files must be present:
 - `.opencode/frontends.json`
 
 Agents should treat these files as the default automation framework for run/publish/log tasks.
+
+Slash command contract for testing:
+
+- `/start-test` -> test `main` branch
+- `/start-test <branch-name>` or `/start-test --branch <branch-name>` -> test that branch
+- `/start-test <pr-url> [<pr-url> ...]` -> resolve PR branches and test each target
 
 ## Optional: lazygit session
 
