@@ -61,6 +61,7 @@ If hosted URLs are missing after start, run `Publish Frontends` after frontend p
 Data source expectations per run folder:
 
 - `logs/{run_id}/manifest.json`
+- `logs/{run_id}/coverage.json` (route/button/form/functional totals)
 - `logs/{run_id}/index.html`
 - `logs/{run_id}/screenshots/`
 - `logs/{run_id}/video/`

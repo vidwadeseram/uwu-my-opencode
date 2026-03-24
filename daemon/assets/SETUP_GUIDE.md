@@ -503,7 +503,7 @@ Before declaring a regression run successful, validate report artifacts from wor
 If `/test-reports` shows a run with missing `index.html`/`manifest.json`, that run did not bootstrap correctly.
 Start by creating run artifacts first (as defined in `workspace-docs/TEST_CASES.md` step `Run bootstrap`), then execute tests.
 
-Also ensure each run writes `coverage.json` so exhaustive route/button/form coverage is auditable.
+Also ensure each run writes `coverage.json` so exhaustive route/button/form/functional coverage is auditable.
 
 ## Test data seeding (required before deep functional tests)
 
@@ -638,6 +638,8 @@ button_total = int(coverage.get("button_total", 0))
 button_covered = int(coverage.get("button_covered", 0))
 form_total = int(coverage.get("form_total", 0))
 form_covered = int(coverage.get("form_covered", 0))
+functional_total = int(coverage.get("functional_total", 0))
+functional_covered = int(coverage.get("functional_covered", 0))
 
 if route_total <= 0:
     errors.append("coverage route_total must be > 0")
@@ -647,8 +649,24 @@ if button_covered > button_total:
     errors.append("coverage button_covered exceeds button_total")
 if form_covered > form_total:
     errors.append("coverage form_covered exceeds form_total")
-if button_total <= 0 or form_total <= 0:
-    errors.append("coverage button_total/form_total must be > 0 for exhaustive run")
+if functional_covered > functional_total:
+    errors.append("coverage functional_covered exceeds functional_total")
+if functional_covered != functional_total:
+    errors.append("coverage functional_covered must equal functional_total for exhaustive run")
+if button_total <= 0 or form_total <= 0 or functional_total <= 0:
+    errors.append("coverage button_total/form_total/functional_total must be > 0 for exhaustive run")
+
+func_manifest_count = sum(
+    1
+    for case in tests
+    if str(case.get("id") or "").strip().upper().startswith("FUNC-")
+)
+if func_manifest_count == 0:
+    errors.append("manifest has no FUNC-* entries")
+if functional_total > 0 and func_manifest_count != functional_total:
+    errors.append(
+        f"manifest FUNC-* count ({func_manifest_count}) does not match coverage.functional_total ({functional_total})"
+    )
 
 if errors:
     print("FAIL")

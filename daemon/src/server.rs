@@ -194,6 +194,10 @@ struct TestReportCoverage {
     form_total: u64,
     #[serde(default)]
     form_covered: u64,
+    #[serde(default)]
+    functional_total: u64,
+    #[serde(default)]
+    functional_covered: u64,
 }
 
 #[derive(Default)]
@@ -1081,13 +1085,15 @@ fn build_tested_scope_and_quality(
 
     let coverage_scope = coverage.map(|x| {
         format!(
-            "routes {}/{}, buttons {}/{}, forms {}/{}",
+            "routes {}/{}, buttons {}/{}, forms {}/{}, functional {}/{}",
             x.route_covered,
             x.route_total,
             x.button_covered,
             x.button_total,
             x.form_covered,
-            x.form_total
+            x.form_total,
+            x.functional_covered,
+            x.functional_total
         )
     });
 
@@ -1104,8 +1110,17 @@ fn build_tested_scope_and_quality(
         if coverage.form_covered > coverage.form_total {
             quality.push("coverage form_covered exceeds form_total".to_string());
         }
+        if coverage.functional_covered > coverage.functional_total {
+            quality.push("coverage functional_covered exceeds functional_total".to_string());
+        }
         if coverage.button_total == 0 || coverage.form_total == 0 {
             quality.push("button/form coverage totals are zero".to_string());
+        }
+        if coverage.functional_total == 0 {
+            quality.push("functional coverage total is zero".to_string());
+        }
+        if coverage.functional_covered < coverage.functional_total {
+            quality.push("coverage functional_covered is less than functional_total".to_string());
         }
     } else {
         quality.push("missing coverage.json".to_string());
@@ -1211,6 +1226,37 @@ fn build_tested_scope_and_quality(
     if manifest.tests.is_empty() && total > 0 {
         quality.push("manifest has summary but no test list".to_string());
     }
+
+    let functional_test_count = manifest
+        .tests
+        .iter()
+        .filter(|case| {
+            case.id
+                .as_deref()
+                .map(|id| id.trim().to_ascii_uppercase().starts_with("FUNC-"))
+                .unwrap_or(false)
+        })
+        .count() as u64;
+
+    if total > 0 && functional_test_count == 0 {
+        quality.push("manifest has no FUNC-* functional test entries".to_string());
+    }
+
+    if let Some(coverage) = coverage {
+        if coverage.functional_total > 0 && functional_test_count < coverage.functional_total {
+            quality.push(format!(
+                "manifest has fewer FUNC-* entries ({}) than coverage.functional_total ({})",
+                functional_test_count, coverage.functional_total
+            ));
+        }
+        if coverage.functional_total > 0 && functional_test_count > coverage.functional_total {
+            quality.push(format!(
+                "manifest has more FUNC-* entries ({}) than coverage.functional_total ({})",
+                functional_test_count, coverage.functional_total
+            ));
+        }
+    }
+
     if manifest.screenshots.is_empty() && passed > 0 {
         quality.push("manifest has passes but no screenshots[] entries".to_string());
     }

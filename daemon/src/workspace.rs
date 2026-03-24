@@ -421,7 +421,7 @@ impl WorkspaceManager {
                 .await
                 .unwrap_or_default();
             if !existing.contains("# Workspace Test Template (Compact)")
-                || !existing.contains("Coverage is only considered complete when route/button/form totals are explicitly recorded")
+                || !existing.contains("Coverage is only considered complete when route/button/form/functional totals are explicitly recorded")
                 || !existing.contains("11. **Stable capture rule (required before screenshot/pass)**")
                 || !existing.contains("logs/{run_id}/coverage.json")
                 || !existing.contains("--repo` filter for multi-repo workspaces")
@@ -450,6 +450,10 @@ impl WorkspaceManager {
                 || !existing
                     .contains("## Test data seeding (required before deep functional tests)")
                 || !existing.contains("ensure-superadmin.sh")
+                || !existing.contains("functional_total")
+                || !existing.contains(
+                    "coverage functional_covered must equal functional_total for exhaustive run",
+                )
             {
                 tokio::fs::write(&docs_setup_file, SETUP_GUIDE_CONTENT).await?;
             }
@@ -471,6 +475,8 @@ impl WorkspaceManager {
                 || !existing.contains("## 12) Deep Functional Test Scenarios")
                 || !existing.contains("FUNC-KYC-006")
                 || !existing.contains("## 13) Functional Test Execution Contract")
+                || !existing.contains("functional_total")
+                || !existing.contains("functional_covered == functional_total")
             {
                 tokio::fs::write(&docs_test_cases_file, TEST_CASES_CONTENT).await?;
             }
@@ -770,13 +776,20 @@ Required execution rules:
      - If no repo match exists, mark that PR target as blocked with explicit reason.
 
 5) For each switched target, run full test contract from workspace docs:
-   - Follow `workspace-docs/SETUP.md` preflight and infra checks.
-   - Execute exhaustive coverage from `workspace-docs/TEST_CASES.md`.
-   - Enforce quality gates:
-      - no PASS on 404/error/loading evidence
-      - no placeholder video text in `index.html`
-      - full-process video file must exist and be non-zero bytes
-      - dashboard after login must be stable before PASS (visible heading + loaded content + no auth redirect)
+    - Follow `workspace-docs/SETUP.md` preflight and infra checks.
+    - Execute exhaustive coverage from `workspace-docs/TEST_CASES.md`.
+    - Route-visit checks are NOT enough; execute deep functional workflows from Section 12.
+    - Required functional examples (must run and be recorded):
+      - add user/employee and verify it appears in list/detail
+      - add item and verify it appears in item list
+      - full KYC lifecycle: merchant submit -> super admin approve/reject -> merchant verify status
+      - CRUD flows for items/categories/customers/employees with valid + invalid form paths
+    - Include `FUNC-*` test IDs in `manifest.json` and functional totals in `coverage.json`.
+    - Enforce quality gates:
+       - no PASS on 404/error/loading evidence
+       - no placeholder video text in `index.html`
+       - full-process video file must exist and be non-zero bytes
+       - dashboard after login must be stable before PASS (visible heading + loaded content + no auth redirect)
 
 6) Collect and report run outputs per target:
     - run id

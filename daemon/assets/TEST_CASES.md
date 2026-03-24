@@ -12,7 +12,7 @@ A full run is complete only when all of the following are true:
 4. Screenshots for PASS cases are verified to be stable and on the intended page.
 5. One full-process video is present and playable.
 6. `manifest.json` includes per-test entries (`tests`) and screenshot links.
-7. `coverage.json` records route/button/form totals and covered counts.
+7. `coverage.json` records route/button/form/functional totals and covered counts.
 8. `index.html` contains real video embedding/link output, not placeholder messaging.
 
 ## 2) Route Inventory (Source of Truth)
@@ -286,7 +286,9 @@ Each run must include `logs/{run_id}/coverage.json` with this structure:
   "button_covered": 0,
   "form_total": 0,
   "form_covered": 0,
-  "notes": "button/form totals are generated from runtime discovery"
+  "functional_total": 0,
+  "functional_covered": 0,
+  "notes": "button/form/functional totals are generated from runtime discovery"
 }
 ```
 
@@ -294,8 +296,10 @@ Rules:
 
 - `route_total` must match the current Section 2 inventory count at runtime.
 - `route_covered` must equal `route_total` for an exhaustive run.
-- `button_covered <= button_total`, `form_covered <= form_total`.
-- If `button_total` or `form_total` is `0`, add a note explaining discovery failure and mark run `FAIL`.
+- `button_covered <= button_total`, `form_covered <= form_total`, `functional_covered <= functional_total`.
+- `functional_total` must include all `FUNC-*` scenarios from Section 12.
+- `functional_covered` must equal `functional_total` for an exhaustive run.
+- If `button_total`, `form_total`, or `functional_total` is `0`, add a note explaining discovery failure and mark run `FAIL`.
 
 ## 9) Artifact Validation Before Finalizing Run
 
@@ -342,6 +346,8 @@ button_total = int(coverage.get("button_total", 0))
 button_covered = int(coverage.get("button_covered", 0))
 form_total = int(coverage.get("form_total", 0))
 form_covered = int(coverage.get("form_covered", 0))
+functional_total = int(coverage.get("functional_total", 0))
+functional_covered = int(coverage.get("functional_covered", 0))
 
 if route_total <= 0:
     errors.append("coverage.json route_total must be > 0")
@@ -351,8 +357,24 @@ if button_covered > button_total:
     errors.append("button_covered cannot exceed button_total")
 if form_covered > form_total:
     errors.append("form_covered cannot exceed form_total")
-if button_total == 0 or form_total == 0:
-    errors.append("button/form totals missing; runtime discovery did not run")
+if functional_covered > functional_total:
+    errors.append("functional_covered cannot exceed functional_total")
+if functional_covered != functional_total:
+    errors.append("functional_covered must equal functional_total for exhaustive run")
+if button_total == 0 or form_total == 0 or functional_total == 0:
+    errors.append("button/form/functional totals missing; runtime discovery did not run")
+
+func_manifest_count = sum(
+    1
+    for case in manifest.get("tests", [])
+    if str(case.get("id") or "").strip().upper().startswith("FUNC-")
+)
+if func_manifest_count == 0:
+    errors.append("manifest has no FUNC-* entries")
+if functional_total > 0 and func_manifest_count != functional_total:
+    errors.append(
+        f"manifest FUNC-* count ({func_manifest_count}) does not match functional_total ({functional_total})"
+    )
 
 for shot in manifest.get("screenshots", []):
     p = (shot.get("path") or "").strip()
@@ -431,7 +453,7 @@ Mark run complete only when all are true:
 - [ ] all critical auth flows executed
 - [ ] all visible click paths exercised on each route
 - [ ] all route forms tested with valid + invalid paths
-- [ ] `coverage.json` confirms non-zero button/form totals and full route coverage
+- [ ] `coverage.json` confirms non-zero button/form/functional totals and full route coverage
 - [ ] screenshot quality gate passed
 - [ ] playable full-process video present
 - [ ] full-process video file is non-zero bytes
@@ -753,6 +775,7 @@ Screenshot naming convention: `screenshots/func-{test-id-lowercase}-{description
 A run is NOT exhaustive unless:
 
 - `coverage.json` includes `functional_total` and `functional_covered` counts
+- `functional_covered == functional_total` for exhaustive runs
 - All FUNC-* test IDs from Section 12 are present in `manifest.json`
 - CRUD operations have before/after verification screenshots
 - Cross-role flows have screenshots from both role perspectives
