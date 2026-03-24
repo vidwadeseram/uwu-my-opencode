@@ -420,7 +420,10 @@ impl WorkspaceManager {
             let existing = tokio::fs::read_to_string(&docs_template_file)
                 .await
                 .unwrap_or_default();
-            if !existing.contains("# Workspace Test Template (Compact)") {
+            if !existing.contains("# Workspace Test Template (Compact)")
+                || !existing.contains("6. **Run bootstrap is mandatory**")
+                || !existing.contains("7. **tmux session isolation**")
+            {
                 tokio::fs::write(&docs_template_file, TEMPLATE_CONTENT).await?;
             }
         }
@@ -437,7 +440,9 @@ impl WorkspaceManager {
                     || !existing.contains("## Regression report artifact validation")
                     || !existing
                         .contains("## Merchant signup OTP retrieval (commons-api tmux window)")
-                    || !existing.contains("spinner/skeleton/blank placeholder"))
+                    || !existing.contains("spinner/skeleton/blank placeholder")
+                    || !existing.contains("missing `index.html`/`manifest.json`")
+                    || !existing.contains("reserved for OpenCode tabs"))
             {
                 tokio::fs::write(&docs_setup_file, SETUP_GUIDE_CONTENT).await?;
             }
@@ -451,6 +456,8 @@ impl WorkspaceManager {
                 .unwrap_or_default();
             if !existing.contains("## SECTION 1: MERCHANT PORTAL - ALL SECTIONS")
                 || !existing.contains("## SECTION 3: REGISTRATION FLOW")
+                || !existing.contains("0. **Run bootstrap (must happen before test execution)**")
+                || !existing.contains("**tmux isolation requirement:**")
             {
                 tokio::fs::write(&docs_test_cases_file, TEST_CASES_CONTENT).await?;
             }
@@ -914,6 +921,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SESSION_NAME="${MYAPP_TMUX_SESSION_NAME:-$(basename "${ROOT_DIR}")}"
 
+if [[ "${SESSION_NAME}" == "uwu-main" ]]; then
+  SESSION_NAME="$(basename "${ROOT_DIR}")"
+fi
+
 if ! command -v tmux >/dev/null 2>&1; then
   echo "tmux is not installed" >&2
   exit 1
@@ -942,6 +953,10 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SESSION_NAME="${1:-${MYAPP_TMUX_SESSION_NAME:-$(basename "${ROOT_DIR}")}}"
+
+if [[ "${SESSION_NAME}" == "uwu-main" ]]; then
+  SESSION_NAME="$(basename "${ROOT_DIR}")"
+fi
 LOG_DIR="${ROOT_DIR}/logs/tmux"
 mkdir -p "${LOG_DIR}"
 

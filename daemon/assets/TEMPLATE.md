@@ -37,6 +37,15 @@ Only load sections needed for the tests you are currently running.
    - `summary.total` must equal `passed + failed + skipped`.
    - `status=pass` cannot coexist with failures or blockers.
 
+6. **Run bootstrap is mandatory**
+   - Create `logs/{run_id}/index.html` and `logs/{run_id}/manifest.json` at test start (before executing cases).
+   - Never leave a run folder without `index.html` and `manifest.json`.
+   - If execution aborts early, keep artifacts and set `status` to `fail` with a clear blocker reason.
+
+7. **tmux session isolation**
+   - Run backend/frontend service windows in tmux session `<workspace-name>` only.
+   - Do not create service windows under `uwu-main` (reserved for OpenCode workspace tabs).
+
 ## Execution Flow
 
 1. Prepare environment with `workspace-docs/SETUP.md`.

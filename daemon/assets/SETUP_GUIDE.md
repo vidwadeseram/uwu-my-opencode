@@ -208,7 +208,11 @@ If tmux has only the default `app` window, treat that as **not started** (scaffo
 set -euo pipefail
 
 ROOT_DIR="$(pwd)"
-SESSION_NAME="${MYAPP_TMUX_SESSION_NAME:-$(basename "$ROOT_DIR")}"
+SESSION_NAME="${MYAPP_TMUX_SESSION_NAME:-$(basename "$ROOT_DIR")}" 
+
+if [[ "${SESSION_NAME}" == "uwu-main" ]]; then
+  SESSION_NAME="$(basename "$ROOT_DIR")"
+fi
 
 tmux has-session -t "${SESSION_NAME}" 2>/dev/null || tmux new-session -d -s "${SESSION_NAME}" -n app -c "${ROOT_DIR}"
 
@@ -243,6 +247,10 @@ Required backend port map:
 - payment-api: `localhost:8006`
 - super-admin-api: `localhost:8008`
 
+Session rule:
+
+- `uwu-main` is reserved for OpenCode tabs; backend services must run in workspace session (`allinonepos` or your workspace name).
+
 Validation command:
 
 ```bash
@@ -256,9 +264,13 @@ Merchant registration OTPs must be read from `commons-api` logs in the workspace
 ```bash
 set -euo pipefail
 
-SESSION_NAME="${MYAPP_TMUX_SESSION_NAME:-$(basename "$PWD")}"
+SESSION_NAME="${MYAPP_TMUX_SESSION_NAME:-$(basename "$PWD")}" 
 PHONE_INPUT="771234567"      # exact digits typed in UI when +94 is prefilled
 PHONE_E164="+94${PHONE_INPUT}"
+
+if [[ "${SESSION_NAME}" == "uwu-main" ]]; then
+  SESSION_NAME="$(basename "$PWD")"
+fi
 
 tmux capture-pane -pt "${SESSION_NAME}:commons-api.0" -S -500 \
   | grep -E "New Sandbox mode SMS|Your OTP is|OTP" \
@@ -435,6 +447,9 @@ The log capture session must be named exactly as the workspace folder.
 ## Regression report artifact validation
 
 Before declaring a regression run successful, validate report artifacts from workspace root:
+
+If `/test-reports` shows a run with missing `index.html`/`manifest.json`, that run did not bootstrap correctly.
+Start by creating run artifacts first (as defined in `workspace-docs/TEST_CASES.md` step `Run bootstrap`), then execute tests.
 
 ```bash
 set -euo pipefail

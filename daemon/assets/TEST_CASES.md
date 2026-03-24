@@ -553,6 +553,43 @@ This template defines all test cases for the Marx POS system.
 mkdir -p logs
 ```
 
+**tmux isolation requirement:**
+
+- Use tmux session `<workspace-name>` for API/frontend windows.
+- Do not create service windows in `uwu-main`.
+
+0. **Run bootstrap (must happen before test execution)**
+
+   ```bash
+   RUN_ID="$(date +%Y-%m-%d%H-%M-%S)"
+   RUN_DIR="logs/${RUN_ID}"
+   mkdir -p "${RUN_DIR}/screenshots" "${RUN_DIR}/video"
+
+   cat > "${RUN_DIR}/manifest.json" <<JSON
+   {
+     "run_id": "${RUN_ID}",
+     "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+     "status": "fail",
+     "summary": {"total": 0, "passed": 0, "failed": 0, "skipped": 0},
+     "blocker": "run started - results pending",
+     "screenshots": [],
+     "video": {"path": "video/full-process.webm"}
+   }
+   JSON
+
+   cat > "${RUN_DIR}/index.html" <<HTML
+   <!doctype html>
+   <html><head><meta charset="utf-8"><title>Run ${RUN_ID}</title></head>
+   <body>
+   <h1>Regression Run ${RUN_ID}</h1>
+   <p>Status: in progress</p>
+   <p>Artifacts are being generated. Refresh after completion.</p>
+   </body></html>
+   HTML
+   ```
+
+   If tests abort, update the same files with final `fail` status and blocker details.
+
 1. **OTP Retrieval (Merchant Signup)**
 
    Use workspace tmux session + `commons-api` window logs (do not use `kyc-test`):
