@@ -261,6 +261,10 @@ pub fn create_router(ctx: AppContext) -> Router {
             "/test-reports/{workspace}/{run_id}/video/{file}",
             get(test_report_asset_video),
         )
+        .route(
+            "/test-reports/{workspace}/{run_id}/logs/{legacy_run_id}/{*asset_path}",
+            get(test_report_asset_legacy),
+        )
         .route("/commander", get(commander_index))
         .route("/logout", get(logout))
         .nest_service("/static", ServeDir::new(static_dir))
@@ -663,6 +667,24 @@ async fn test_report_asset_video(
     }
     let rel = format!("video/{}", file);
     let path = resolve_test_report_file(&ctx, &workspace, &run_id, &rel).await?;
+    let content = tokio::fs::read(&path).await?;
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, mime_for(&path))],
+        content,
+    ))
+}
+
+async fn test_report_asset_legacy(
+    State(ctx): State<AppContext>,
+    Path((workspace, run_id, legacy_run_id, asset_path)): Path<(String, String, String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    if run_id != legacy_run_id {
+        return Err(AppError::NotFound("report file not found".to_string()));
+    }
+    if asset_path.is_empty() {
+        return Err(AppError::BadRequest("invalid report path".to_string()));
+    }
+    let path = resolve_test_report_file(&ctx, &workspace, &run_id, &asset_path).await?;
     let content = tokio::fs::read(&path).await?;
     Ok((
         [(axum::http::header::CONTENT_TYPE, mime_for(&path))],

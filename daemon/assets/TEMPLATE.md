@@ -47,7 +47,9 @@ This template defines all test cases for the Marx POS system.
 - HTML surface requirements:
   - `index.html` must show run metadata from `manifest.json`.
   - `index.html` must show screenshot entries and a playable video section.
+  - Use run-relative media paths only (`screenshots/<file>` and `video/<file>`), never `logs/{run_id}/...` in `src` attributes.
   - If screenshots or video are missing, render an explicit warning state in the page.
+  - `video/` must include one full-process recording named `full-process.mp4` (or `full-process.webm`).
 
 ## Test Environment
 
@@ -623,7 +625,7 @@ Required files:
 - `logs/{run_id}/index.html`
 - `logs/{run_id}/manifest.json`
 - `logs/{run_id}/screenshots/*.png`
-- `logs/{run_id}/video/*.mp4` (or `.webm`)
+- `logs/{run_id}/video/full-process.mp4` (or `full-process.webm`)
 
 Required summary fields in `manifest.json`:
 
