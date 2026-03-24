@@ -257,6 +257,31 @@ Validation command:
 ss -ltnp | grep -E ':(8001|8002|8003|8004|8005|8006|8008)\b'
 ```
 
+## gRPC dependency health check (identity signup path)
+
+For merchant signup (`POST /user/register`), identity-api must reach inventory gRPC service.
+
+Quick checks:
+
+```bash
+cd /root/workspaces/allinonepos
+
+grep -E '^export GRPC_INVENTORY_SERVICE_(HOST|PORT)=' pos-identity-api/.envrc
+grep -E '^export GRPC_SERVER_PORT=' pos-inventory-api/.envrc
+ss -ltnp | grep -E ':(9001|9004)\b'
+```
+
+Expected values:
+
+- `pos-identity-api/.envrc` -> `GRPC_INVENTORY_SERVICE_HOST=localhost`, `GRPC_INVENTORY_SERVICE_PORT=9004`
+- `pos-inventory-api/.envrc` -> `GRPC_SERVER_PORT=9004`
+
+If mismatched:
+
+1. Fix `.envrc` values (infra only, no logic/code changes).
+2. Restart affected tmux windows (at minimum `identity-api`, and dependency service if changed).
+3. Re-run signup test before marking any blocker.
+
 ## Merchant signup OTP retrieval (commons-api tmux window)
 
 Merchant registration OTPs must be read from `commons-api` logs in the workspace tmux session.
@@ -284,6 +309,7 @@ Rules:
 - Match OTP to the exact phone number used in the merchant signup step.
 - Use phone format `+94770805444` (E.164, no spaces) for signup/login test data.
 - For merchant login UI fields where `+94` is prefilled, type only the remaining digits (example: `770805444`).
+- In merchant signup, Terms & Conditions checkbox must be checked before submit, otherwise treat as `FAIL` if the flow is stuck.
 - If no matching OTP is present in `commons-api` logs, mark OTP-dependent tests as `FAIL`.
 
 ## Tmux session script template

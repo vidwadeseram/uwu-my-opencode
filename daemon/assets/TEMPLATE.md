@@ -46,6 +46,15 @@ Only load sections needed for the tests you are currently running.
    - Run backend/frontend service windows in tmux session `<workspace-name>` only.
    - Do not create service windows under `uwu-main` (reserved for OpenCode workspace tabs).
 
+8. **Merchant signup terms checkbox**
+   - For signup submit, Terms & Conditions checkbox must be checked before clicking submit.
+   - If submit is blocked because terms is unchecked, mark test as `FAIL` with screenshot evidence.
+
+9. **Infra retry policy (no logic changes)**
+   - If a test fails due to infrastructure/port wiring (`unknown service`, `connection refused`, `deadline exceeded`, or similar dependency-call errors), fix infra first and re-run the same test.
+   - Do not change business logic/code to bypass infra failures.
+   - Mark as `BLOCKED` only if the same test still fails after at least one documented infra fix + retry cycle.
+
 ## Execution Flow
 
 1. Prepare environment with `workspace-docs/SETUP.md`.

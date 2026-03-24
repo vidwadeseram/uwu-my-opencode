@@ -356,12 +356,13 @@ This template defines all test cases for the Marx POS system.
 | Test ID | Test Case                   | Test Data                               | Expected Result                   | Status |
 | ------- | --------------------------- | --------------------------------------- | --------------------------------- | ------ |
 | RS-001  | Load Signup page            | -                                       | Signup form loads                 | -      |
-| RS-002  | Signup with valid data      | Phone: +9477XXXXXXX, Email, Password | User created, OTP sent            | -      |
+| RS-002  | Signup with valid data      | Phone: +9477XXXXXXX, Email, Password, Terms checkbox: checked | User created, OTP sent            | -      |
 | RS-003  | Signup with existing phone  | Existing: +94770805444               | Error: "User already exists"      | -      |
 | RS-004  | Signup with invalid email   | email: "notanemail"                     | Validation error                  | -      |
 | RS-005  | Signup with weak password   | password: "123"                         | Validation: password requirements | -      |
 | RS-006  | Signup with empty fields    | (empty)                                 | Validation errors                 | -      |
 | RS-007  | Signup without phone prefix | Phone: 771234567                        | Should add +94 prefix             | -      |
+| RS-008  | Submit signup without Terms checked | Valid signup fields, Terms unchecked | Submit blocked or terms validation shown | -      |
 
 ### 3.2 OTP Verification
 
@@ -589,6 +590,39 @@ mkdir -p logs
    ```
 
    If tests abort, update the same files with final `fail` status and blocker details.
+
+0.1 **Signup terms checkbox requirement (must enforce)**
+
+   Before submitting merchant signup forms:
+
+   - locate the Terms & Conditions checkbox,
+   - check it,
+   - assert checkbox is checked,
+   - then click submit.
+
+   Playwright example:
+
+   ```typescript
+   const terms = page
+     .locator('input[type="checkbox"][name*="term" i], input[type="checkbox"][id*="term" i], input[type="checkbox"][aria-label*="term" i]')
+     .first();
+
+   await terms.check({ force: true });
+   await expect(terms).toBeChecked();
+   ```
+
+   If the page uses a custom checkbox (not native input), click the label/control and verify checked state using the component's aria/data attributes.
+
+0.2 **Infra/port recovery policy (must run before BLOCKED)**
+
+   If a case fails with dependency/network infra errors (for example `unknown service`, `connection refused`, `deadline exceeded`, gRPC unimplemented):
+
+   - fix service port/env wiring using `workspace-docs/SETUP.md`,
+   - restart affected tmux service windows,
+   - rerun the same test case ID in the same run,
+   - keep business logic unchanged.
+
+   Only mark `BLOCKED` if it still fails after at least one infra fix + retry attempt with exact before/after log evidence.
 
 1. **OTP Retrieval (Merchant Signup)**
 

@@ -423,6 +423,8 @@ impl WorkspaceManager {
             if !existing.contains("# Workspace Test Template (Compact)")
                 || !existing.contains("6. **Run bootstrap is mandatory**")
                 || !existing.contains("7. **tmux session isolation**")
+                || !existing.contains("8. **Merchant signup terms checkbox**")
+                || !existing.contains("9. **Infra retry policy (no logic changes)**")
             {
                 tokio::fs::write(&docs_template_file, TEMPLATE_CONTENT).await?;
             }
@@ -442,7 +444,9 @@ impl WorkspaceManager {
                         .contains("## Merchant signup OTP retrieval (commons-api tmux window)")
                     || !existing.contains("spinner/skeleton/blank placeholder")
                     || !existing.contains("missing `index.html`/`manifest.json`")
-                    || !existing.contains("reserved for OpenCode tabs"))
+                    || !existing.contains("reserved for OpenCode tabs")
+                    || !existing.contains("Terms & Conditions checkbox")
+                    || !existing.contains("gRPC dependency health check (identity signup path)"))
             {
                 tokio::fs::write(&docs_setup_file, SETUP_GUIDE_CONTENT).await?;
             }
@@ -458,6 +462,10 @@ impl WorkspaceManager {
                 || !existing.contains("## SECTION 3: REGISTRATION FLOW")
                 || !existing.contains("0. **Run bootstrap (must happen before test execution)**")
                 || !existing.contains("**tmux isolation requirement:**")
+                || !existing.contains("| RS-008  | Submit signup without Terms checked")
+                || !existing.contains("0.1 **Signup terms checkbox requirement (must enforce)**")
+                || !existing
+                    .contains("0.2 **Infra/port recovery policy (must run before BLOCKED)**")
             {
                 tokio::fs::write(&docs_test_cases_file, TEST_CASES_CONTENT).await?;
             }
