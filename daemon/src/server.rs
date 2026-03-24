@@ -254,6 +254,10 @@ pub fn create_router(ctx: AppContext) -> Router {
             get(test_report_index),
         )
         .route(
+            "/test-reports/{workspace}/{run_id}/manifest.json",
+            get(test_report_manifest),
+        )
+        .route(
             "/test-reports/{workspace}/{run_id}/screenshots/{file}",
             get(test_report_asset_screenshot),
         )
@@ -636,6 +640,18 @@ async fn test_report_index(
     let content = tokio::fs::read(path).await?;
     Ok((
         [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        content,
+    ))
+}
+
+async fn test_report_manifest(
+    State(ctx): State<AppContext>,
+    Path((workspace, run_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let path = resolve_test_report_file(&ctx, &workspace, &run_id, "manifest.json").await?;
+    let content = tokio::fs::read(path).await?;
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
         content,
     ))
 }
