@@ -166,7 +166,7 @@ Run from workspace root (`allinonepos`):
 ```bash
 set -euo pipefail
 
-POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-newpassword}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-123456}"
 
 sed -i "s|^export PORT=.*|export PORT=8001|" pos-identity-api/.envrc
 sed -i "s|^export GRPC_SERVER_PORT=.*|export GRPC_SERVER_PORT=9001|" pos-identity-api/.envrc
@@ -198,6 +198,30 @@ sed -i "s|^export POSTGRESQL_DSL=.*|export POSTGRESQL_DSL=postgresql://postgres:
 ```
 
 If your password contains URL-reserved characters, use a URL-encoded password value.
+
+## Route inventory refresh (required before claiming exhaustive coverage)
+
+Before running a "full" test, refresh route counts from source to avoid stale coverage assumptions.
+
+Run from workspace root (`allinonepos`):
+
+```bash
+WEB_COUNT=$(find pos-web/src/app -type f \( -name 'page.tsx' -o -name 'page.ts' -o -name 'page.jsx' -o -name 'page.js' \) | wc -l | tr -d ' ')
+ADMIN_COUNT=$(find pos-super-admin/src/app -type f \( -name 'page.tsx' -o -name 'page.ts' -o -name 'page.jsx' -o -name 'page.js' \) | wc -l | tr -d ' ')
+CUSTOMER_COUNT=$(find pos-customer/src/app -type f \( -name 'page.tsx' -o -name 'page.ts' -o -name 'page.jsx' -o -name 'page.js' \) | wc -l | tr -d ' ')
+TOTAL_COUNT=$((WEB_COUNT + ADMIN_COUNT + CUSTOMER_COUNT))
+
+printf 'Route counts -> web:%s admin:%s customer:%s total:%s\n' "$WEB_COUNT" "$ADMIN_COUNT" "$CUSTOMER_COUNT" "$TOTAL_COUNT"
+```
+
+Expected baseline for current allinonepos revision:
+
+- web: `55`
+- admin: `17`
+- customer: `2`
+- total: `74`
+
+If counts differ, update `workspace-docs/TEST_CASES.md` route inventory before marking runs as exhaustive.
 
 ## Start required backend APIs (tmux session contract)
 
@@ -281,6 +305,8 @@ If mismatched:
 1. Fix `.envrc` values (infra only, no logic/code changes).
 2. Restart affected tmux windows (at minimum `identity-api`, and dependency service if changed).
 3. Re-run signup test before marking any blocker.
+
+Note: If failure is page/route mismatch (404 or wrong page name like `junk-qr-payments`), treat it as test-case failure and correct the navigation/page target; do not classify as infra blocker.
 
 ## Merchant signup OTP retrieval (commons-api tmux window)
 
@@ -477,6 +503,8 @@ Before declaring a regression run successful, validate report artifacts from wor
 If `/test-reports` shows a run with missing `index.html`/`manifest.json`, that run did not bootstrap correctly.
 Start by creating run artifacts first (as defined in `workspace-docs/TEST_CASES.md` step `Run bootstrap`), then execute tests.
 
+Also ensure each run writes `coverage.json` so exhaustive route/button/form coverage is auditable.
+
 ```bash
 set -euo pipefail
 
@@ -488,6 +516,7 @@ RUN_DIR="logs/${RUN_ID}"
 
 test -f "${RUN_DIR}/index.html"
 test -f "${RUN_DIR}/manifest.json"
+test -f "${RUN_DIR}/coverage.json"
 test -d "${RUN_DIR}/screenshots"
 test -f "${RUN_DIR}/video/full-process.webm" || test -f "${RUN_DIR}/video/full-process.mp4"
 
@@ -505,6 +534,7 @@ if not run_id:
 
 run = pathlib.Path("logs") / run_id
 manifest = json.loads((run / "manifest.json").read_text())
+coverage = json.loads((run / "coverage.json").read_text())
 
 errors = []
 for item in manifest.get("screenshots", []):
@@ -519,6 +549,22 @@ if v.startswith(f"logs/{run_id}/"):
     v = v[len(f"logs/{run_id}/"):]
 if not (run / v).is_file():
     errors.append(f"video.path is not a file: {manifest.get('video')}")
+
+route_total = int(coverage.get("route_total", 0))
+route_covered = int(coverage.get("route_covered", 0))
+button_total = int(coverage.get("button_total", 0))
+button_covered = int(coverage.get("button_covered", 0))
+form_total = int(coverage.get("form_total", 0))
+form_covered = int(coverage.get("form_covered", 0))
+
+if route_total <= 0:
+    errors.append("coverage route_total must be > 0")
+if route_covered != route_total:
+    errors.append("coverage route_covered must equal route_total for exhaustive run")
+if button_covered > button_total:
+    errors.append("coverage button_covered exceeds button_total")
+if form_covered > form_total:
+    errors.append("coverage form_covered exceeds form_total")
 
 if errors:
     print("FAIL")

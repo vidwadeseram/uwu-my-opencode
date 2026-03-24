@@ -27,7 +27,7 @@
     }
 
     .wrap {
-      max-width: 1100px;
+      max-width: 1240px;
       margin: 0 auto;
       padding: 20px 14px 28px;
     }
@@ -159,6 +159,22 @@
       border-radius: 5px;
       padding: 2px 6px;
     }
+
+    .scope {
+      max-width: 360px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #dbe8ff;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .warn-line {
+      color: #ffd08a;
+      font-size: 12px;
+      margin-top: 4px;
+    }
   </style>
 </head>
 <body>
@@ -167,7 +183,7 @@
       <h1>Workspace Test Reports</h1>
       <a href="/">Back to Dashboard</a>
     </div>
-    <div class="hint">Shows each workspace run with date, status, pass-rate, and direct HTML report links.</div>
+    <div class="hint">Shows each workspace run with date, status, tested scope, evidence quality hints, and direct HTML report links.</div>
     <div id="err" class="err"></div>
     <div id="root" class="grid"></div>
   </div>
@@ -186,6 +202,15 @@
       return `${v.toFixed(1)}%`
     }
 
+    function esc(v) {
+      return String(v ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;")
+    }
+
     function t(v) {
       if (!v) return "unknown"
       const d = new Date(v)
@@ -195,16 +220,29 @@
 
     function runRow(r) {
       const detail = `${r.passed}/${r.total} passed • ${r.failed} failed • ${r.skipped} skipped`
-      const issue = r.issue ? `<div class="small">Issue: ${r.issue}</div>` : ""
+      const issue = r.issue ? `<div class="small">Issue: ${esc(r.issue)}</div>` : ""
+
+      const testedScope = r.tested_scope
+        ? `<div class="scope" title="${esc(r.tested_scope)}">${esc(r.tested_scope)}</div>`
+        : `<span class="small">not specified</span>`
+      const testedCount = Number.isFinite(r.tested_count)
+        ? `<div class="small">${r.tested_count} checks listed</div>`
+        : ""
+      const artifactCounts = `<div class="small">Artifacts: ${r.screenshot_files ?? 0} screenshots • ${r.video_files ?? 0} videos</div>`
+      const quality = r.quality_warning
+        ? `<div class="warn-line">Evidence: ${esc(r.quality_warning)}</div>`
+        : ""
+
       const link = r.html_url
         ? `<a class="link" href="${r.html_url}" target="_blank" rel="noreferrer">Open HTML</a>`
         : `<span class="small">missing index.html</span>`
       return `
         <tr>
-          <td><code>${r.run_id}</code></td>
+          <td><code>${esc(r.run_id)}</code></td>
           <td>${t(r.created_at)}</td>
           <td>${badge(r.status)}</td>
           <td>${pct(r.pass_rate)}<div class="small">${detail}</div>${issue}</td>
+          <td>${testedScope}${testedCount}${artifactCounts}${quality}</td>
           <td>${link}</td>
         </tr>
       `
@@ -236,6 +274,7 @@
                 <th>Date Time</th>
                 <th>Status</th>
                 <th>Success Rate</th>
+                <th>Tested / Evidence</th>
                 <th>HTML</th>
               </tr>
             </thead>

@@ -425,6 +425,7 @@ impl WorkspaceManager {
                 || !existing.contains("7. **tmux session isolation**")
                 || !existing.contains("8. **Merchant signup terms checkbox**")
                 || !existing.contains("9. **Infra retry policy (no logic changes)**")
+                || !existing.contains("10. **Page identity guard (prevent wrong-page PASS)**")
             {
                 tokio::fs::write(&docs_template_file, TEMPLATE_CONTENT).await?;
             }
@@ -446,7 +447,8 @@ impl WorkspaceManager {
                     || !existing.contains("missing `index.html`/`manifest.json`")
                     || !existing.contains("reserved for OpenCode tabs")
                     || !existing.contains("Terms & Conditions checkbox")
-                    || !existing.contains("gRPC dependency health check (identity signup path)"))
+                    || !existing.contains("gRPC dependency health check (identity signup path)")
+                    || !existing.contains("wrong page name like `junk-qr-payments`"))
             {
                 tokio::fs::write(&docs_setup_file, SETUP_GUIDE_CONTENT).await?;
             }
@@ -466,6 +468,7 @@ impl WorkspaceManager {
                 || !existing.contains("0.1 **Signup terms checkbox requirement (must enforce)**")
                 || !existing
                     .contains("0.2 **Infra/port recovery policy (must run before BLOCKED)**")
+                || !existing.contains("0.3 **Page identity verification (must run before PASS)**")
             {
                 tokio::fs::write(&docs_test_cases_file, TEST_CASES_CONTENT).await?;
             }

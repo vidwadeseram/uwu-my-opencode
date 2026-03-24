@@ -134,6 +134,11 @@ pub struct TestReportRun {
     pub skipped: u64,
     pub issue: Option<String>,
     pub html_url: Option<String>,
+    pub tested_count: u64,
+    pub tested_scope: Option<String>,
+    pub quality_warning: Option<String>,
+    pub screenshot_files: u64,
+    pub video_files: u64,
 }
 
 #[derive(Deserialize)]
@@ -144,6 +149,12 @@ struct TestReportManifest {
     status: Option<String>,
     #[serde(default)]
     summary: Option<TestReportSummary>,
+    #[serde(default)]
+    tests: Vec<TestReportCase>,
+    #[serde(default)]
+    screenshots: Vec<TestReportScreenshot>,
+    #[serde(default)]
+    blocker: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -156,6 +167,28 @@ struct TestReportSummary {
     failed: u64,
     #[serde(default)]
     skipped: u64,
+}
+
+#[derive(Deserialize)]
+struct TestReportCase {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TestReportScreenshot {
+    #[serde(default)]
+    test_id: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -817,14 +850,18 @@ async fn workspace_test_runs(ws: &crate::state::Workspace) -> Vec<TestReportRun>
             .await
             .map(|x| x.is_file())
             .unwrap_or(false);
-        let has_screenshots = tokio::fs::metadata(&screenshots_dir)
+        let has_screenshots_dir = tokio::fs::metadata(&screenshots_dir)
             .await
             .map(|x| x.is_dir())
             .unwrap_or(false);
-        let has_video = tokio::fs::metadata(&video_dir)
+        let has_video_dir = tokio::fs::metadata(&video_dir)
             .await
             .map(|x| x.is_dir())
             .unwrap_or(false);
+
+        let screenshot_files =
+            count_artifact_files(&screenshots_dir, &["png", "jpg", "jpeg", "webp"]).await;
+        let video_files = count_artifact_files(&video_dir, &["mp4", "webm"]).await;
 
         let manifest = tokio::fs::read_to_string(&manifest_path)
             .await
@@ -865,11 +902,15 @@ async fn workspace_test_runs(ws: &crate::state::Workspace) -> Vec<TestReportRun>
         if !has_index {
             issue.push("missing index.html");
         }
-        if !has_screenshots {
+        if !has_screenshots_dir {
             issue.push("missing screenshots/ directory");
+        } else if screenshot_files == 0 {
+            issue.push("no screenshot files");
         }
-        if !has_video {
+        if !has_video_dir {
             issue.push("missing video/ directory");
+        } else if video_files == 0 {
+            issue.push("no video files");
         }
 
         let status = manifest
@@ -885,9 +926,17 @@ async fn workspace_test_runs(ws: &crate::state::Workspace) -> Vec<TestReportRun>
                 }
             });
 
+        let (tested_count, tested_scope, quality_warning) = build_tested_scope_and_quality(
+            manifest.as_ref(),
+            total,
+            passed,
+            &status,
+            screenshot_files,
+        );
+
         out.push(TestReportRun {
             run_id: run_id.clone(),
-            created_at: manifest.and_then(|x| x.created_at),
+            created_at: manifest.as_ref().and_then(|x| x.created_at.clone()),
             status,
             pass_rate,
             total,
@@ -904,11 +953,283 @@ async fn workspace_test_runs(ws: &crate::state::Workspace) -> Vec<TestReportRun>
             } else {
                 None
             },
+            tested_count,
+            tested_scope,
+            quality_warning,
+            screenshot_files,
+            video_files,
         });
     }
 
     out.sort_by(|a, b| b.run_id.cmp(&a.run_id));
     out
+}
+
+fn build_tested_scope_and_quality(
+    manifest: Option<&TestReportManifest>,
+    total: u64,
+    passed: u64,
+    status: &str,
+    screenshot_files: u64,
+) -> (u64, Option<String>, Option<String>) {
+    let mut quality = Vec::new();
+
+    let Some(manifest) = manifest else {
+        if passed > 0 && screenshot_files == 0 {
+            quality.push("passes reported without screenshot files".to_string());
+        }
+        let tested_scope = if total > 0 {
+            Some(format!("{} summarized checks (no per-test list)", total))
+        } else {
+            None
+        };
+        return (
+            total,
+            tested_scope,
+            if quality.is_empty() {
+                None
+            } else {
+                Some(quality.join(", "))
+            },
+        );
+    };
+
+    let tested_count = if manifest.tests.is_empty() {
+        total
+    } else {
+        manifest.tests.len() as u64
+    };
+
+    let tested_scope = if !manifest.tests.is_empty() {
+        let labels: Vec<String> = manifest
+            .tests
+            .iter()
+            .map(|case| {
+                let id = case
+                    .id
+                    .as_deref()
+                    .or(case.name.as_deref())
+                    .unwrap_or("unknown");
+                let st = case.status.as_deref().unwrap_or("unknown").to_lowercase();
+                format!("{}:{}", id, st)
+            })
+            .collect();
+        Some(compact_scope(&labels, 6))
+    } else if total > 0 {
+        Some(format!("{} summarized checks (no test IDs)", total))
+    } else {
+        None
+    };
+
+    if manifest.tests.is_empty() && total > 0 {
+        quality.push("manifest has summary but no test list".to_string());
+    }
+
+    let pass_ids: Vec<&str> = manifest
+        .tests
+        .iter()
+        .filter(|case| {
+            case.status
+                .as_deref()
+                .map(|v| v.eq_ignore_ascii_case("pass"))
+                .unwrap_or(false)
+        })
+        .filter_map(|case| case.id.as_deref())
+        .collect();
+
+    let mut loading_count = 0u64;
+    let mut error_screen_count = 0u64;
+    let mut pass_unreliable_count = 0u64;
+    let mut wrong_page_name_count = 0u64;
+    let mut pass_with_error_text_count = 0u64;
+
+    for case in &manifest.tests {
+        let blob = format!(
+            "{} {} {}",
+            case.id.as_deref().unwrap_or_default(),
+            case.name.as_deref().unwrap_or_default(),
+            case.error.as_deref().unwrap_or_default()
+        );
+
+        let is_pass = case
+            .status
+            .as_deref()
+            .map(|v| v.eq_ignore_ascii_case("pass"))
+            .unwrap_or(false);
+
+        if contains_wrong_page_keyword(&blob) {
+            wrong_page_name_count += 1;
+        }
+        if is_pass && (contains_error_screen_keyword(&blob) || contains_loading_keyword(&blob)) {
+            pass_with_error_text_count += 1;
+        }
+    }
+
+    for shot in &manifest.screenshots {
+        let blob = format!(
+            "{} {} {}",
+            shot.test_id.as_deref().unwrap_or_default(),
+            shot.path.as_deref().unwrap_or_default(),
+            shot.description.as_deref().unwrap_or_default()
+        );
+
+        let loading = contains_loading_keyword(&blob);
+        let error_screen = contains_error_screen_keyword(&blob);
+        let wrong_page_name = contains_wrong_page_keyword(&blob);
+
+        if loading {
+            loading_count += 1;
+        }
+        if error_screen {
+            error_screen_count += 1;
+        }
+        if wrong_page_name {
+            wrong_page_name_count += 1;
+        }
+
+        if let Some(test_id) = shot.test_id.as_deref() {
+            if pass_ids.iter().any(|x| *x == test_id)
+                && (loading || error_screen || wrong_page_name)
+            {
+                pass_unreliable_count += 1;
+            }
+        }
+    }
+
+    if loading_count > 0 {
+        quality.push(format!(
+            "{} screenshot(s) mention loading/spinner state",
+            loading_count
+        ));
+    }
+    if error_screen_count > 0 {
+        quality.push(format!(
+            "{} screenshot(s) mention error/404 state",
+            error_screen_count
+        ));
+    }
+    if pass_unreliable_count > 0 {
+        quality.push(format!(
+            "{} PASS screenshot(s) look unreliable",
+            pass_unreliable_count
+        ));
+    }
+    if wrong_page_name_count > 0 {
+        quality.push(format!(
+            "{} reference(s) mention wrong page name",
+            wrong_page_name_count
+        ));
+    }
+    if pass_with_error_text_count > 0 {
+        quality.push(format!(
+            "{} PASS test entry/notes include error-like text",
+            pass_with_error_text_count
+        ));
+    }
+    if passed > 0 && screenshot_files == 0 {
+        quality.push("passes reported without screenshot files".to_string());
+    }
+    if manifest
+        .blocker
+        .as_deref()
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false)
+        && status.eq_ignore_ascii_case("pass")
+    {
+        quality.push("status is pass while blocker is present".to_string());
+    }
+
+    (
+        tested_count,
+        tested_scope,
+        if quality.is_empty() {
+            None
+        } else {
+            Some(quality.join(", "))
+        },
+    )
+}
+
+fn compact_scope(items: &[String], limit: usize) -> String {
+    if items.is_empty() {
+        return String::new();
+    }
+    if items.len() <= limit {
+        return items.join(", ");
+    }
+    let shown = items[..limit].join(", ");
+    format!("{}, +{} more", shown, items.len() - limit)
+}
+
+fn contains_loading_keyword(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    [
+        "loading",
+        "spinner",
+        "skeleton",
+        "shimmer",
+        "placeholder",
+        "progress-only",
+        "in progress",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
+}
+
+fn contains_error_screen_keyword(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    [
+        "404",
+        "not found",
+        "internal server error",
+        "error page",
+        "blocked",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
+}
+
+fn contains_wrong_page_keyword(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    ["junk-qr-payments", "junk qr payments", "junkqrpayments"]
+        .iter()
+        .any(|k| lower.contains(k))
+}
+
+async fn count_artifact_files(dir: &StdPath, allowed_ext: &[&str]) -> u64 {
+    let mut entries = match tokio::fs::read_dir(dir).await {
+        Ok(v) => v,
+        Err(_) => return 0,
+    };
+
+    let mut count = 0u64;
+    while let Ok(Some(item)) = entries.next_entry().await {
+        let file_type = match item.file_type().await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if !file_type.is_file() {
+            continue;
+        }
+
+        if allowed_ext.is_empty() {
+            count += 1;
+            continue;
+        }
+
+        let ext = item
+            .path()
+            .extension()
+            .and_then(|v| v.to_str())
+            .unwrap_or_default()
+            .to_lowercase();
+
+        if allowed_ext.iter().any(|e| *e == ext) {
+            count += 1;
+        }
+    }
+
+    count
 }
 
 fn is_test_run_id(v: &str) -> bool {
