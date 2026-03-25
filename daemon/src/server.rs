@@ -339,6 +339,10 @@ pub fn create_router(ctx: AppContext) -> Router {
             "/test-reports/{workspace}/{run_id}/logs/{legacy_run_id}/{*asset_path}",
             get(test_report_asset_legacy),
         )
+        .route(
+            "/test-reports/{workspace}/{run_id}/detail.html",
+            get(test_report_detail),
+        )
         .route("/commander", get(commander_index))
         .route("/logout", get(logout))
         .nest_service("/static", ServeDir::new(static_dir))
@@ -775,6 +779,30 @@ async fn test_report_asset_legacy(
     Ok((
         [(axum::http::header::CONTENT_TYPE, mime_for(&path))],
         content,
+    ))
+}
+
+async fn test_report_detail(
+    State(_ctx): State<AppContext>,
+    Path((workspace, run_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let static_dir = resolve_static_dir();
+    let template_path = static_dir.join("report-detail.html");
+    let html = tokio::fs::read_to_string(&template_path)
+        .await
+        .map_err(|err| {
+            AppError::NotFound(format!(
+                "detail template not found at '{}': {}",
+                template_path.display(),
+                err
+            ))
+        })?;
+    let filled = html
+        .replace("[[WORKSPACE]]", &workspace)
+        .replace("[[RUN_ID]]", &run_id);
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        filled,
     ))
 }
 

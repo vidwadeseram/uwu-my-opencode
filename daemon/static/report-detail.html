@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Test Run — [[RUN_ID]] — [[WORKSPACE]]</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d10;
+      --card: #14181f;
+      --muted: #9ca8b9;
+      --text: #eef3ff;
+      --border: #293243;
+      --ok: #35c86f;
+      --warn: #e5b94d;
+      --bad: #f06a6a;
+      --run: #63a5ff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      background: radial-gradient(circle at top, #111622, #0b0d10 40%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
+
+    /* ── Top bar ── */
+    .topbar {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 20px; flex-wrap: wrap;
+    }
+    .topbar h1 { font-size: 20px; flex: 1; }
+    .topbar .badge {
+      border-radius: 999px; padding: 4px 12px;
+      font-size: 13px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .badge-pass  { color: var(--ok);   background: #0f2a1a; border: 1px solid #2d6b3f; }
+    .badge-fail  { color: var(--bad);  background: #2a0f0f; border: 1px solid #6b2d2d; }
+    .badge-partial { color: var(--warn); background: #2a200f; border: 1px solid #6b5a1f; }
+    .badge-blocked { color: #ffad6e; background: #2a1a0f; border: 1px solid #6b4a1f; }
+    .badge-running { color: var(--run); background: #0f1a2a; border: 1px solid #2d4b6b; }
+    .topbar a {
+      text-decoration: none; border: 1px solid #38517a; color: #d3e4ff;
+      background: #1b2840; border-radius: 8px; padding: 7px 12px; font-size: 13px; font-weight: 600;
+    }
+    .topbar a:hover { background: #243350; }
+
+    /* ── Summary strip ── */
+    .summary-strip {
+      display: flex; gap: 10px; flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .stat-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 16px; min-width: 110px;
+    }
+    .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+    .stat-val   { font-size: 22px; font-weight: 700; }
+    .stat-val.ok   { color: var(--ok); }
+    .stat-val.bad  { color: var(--bad); }
+    .stat-val.warn { color: var(--warn); }
+
+    /* ── Quality warnings ── */
+    .quality-warn {
+      background: #1c1408; border: 1px solid #6b4a1f;
+      border-radius: 10px; padding: 10px 14px;
+      color: #ffd08a; font-size: 13px; margin-bottom: 16px;
+    }
+    .quality-warn b { color: #ffad6e; }
+
+    /* ── Sections ── */
+    .section { margin-bottom: 28px; }
+    .section h2 {
+      font-size: 15px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.07em; color: var(--muted);
+      margin-bottom: 10px; padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Test table ── */
+    .table-wrap {
+      border: 1px solid #2a3649; border-radius: 10px; overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      background: #101722; color: #c4d5f1; padding: 9px 12px;
+      text-align: left; font-weight: 600; border-bottom: 1px solid #2a3649;
+      position: sticky; top: 0; z-index: 2;
+    }
+    tbody tr { border-bottom: 1px solid #1e2736; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #1a2030; }
+    td { padding: 8px 12px; vertical-align: top; }
+    td .id { font-family: ui-monospace, monospace; font-size: 12px; color: #97c6ff; }
+    td .name { color: var(--text); }
+    td .err { color: #ff9f9f; font-size: 12px; margin-top: 4px; display: none; white-space: pre-wrap; word-break: break-all; }
+    td .shots { font-size: 11px; color: var(--muted); margin-top: 3px; display: none; }
+    td .shots a { color: #97c6ff; }
+    .row-pass td:first-child::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 8px; }
+    .row-fail td:first-child::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); margin-right: 8px; }
+    .row-blocked td:first-child::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ffad6e; margin-right: 8px; }
+    .row-skipped td:first-child::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 8px; }
+    tr.shown .err, tr.shown .shots { display: block; }
+
+    /* ── Screenshot grid ── */
+    .shot-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+    }
+    .shot-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; overflow: hidden;
+    }
+    .shot-card img {
+      width: 100%; max-height: 200px; object-fit: cover;
+      display: block; background: #000;
+    }
+    .shot-card .cap {
+      font-size: 11px; color: var(--muted); padding: 6px 8px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .shot-empty {
+      color: var(--muted); font-size: 13px;
+      background: #101521; border: 1px dashed #36445d;
+      border-radius: 10px; padding: 20px; text-align: center;
+    }
+
+    /* ── Video ── */
+    video { width: 100%; max-height: 600px; border-radius: 10px; background: #000; }
+    .video-missing {
+      color: var(--muted); font-size: 13px;
+      background: #101521; border: 1px dashed #36445d;
+      border-radius: 10px; padding: 20px; text-align: center;
+    }
+
+    /* ── Coverage ── */
+    .cov-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+    .cov-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 14px;
+    }
+    .cov-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+    .cov-bar-bg { background: #1e2736; border-radius: 6px; height: 8px; overflow: hidden; margin-bottom: 4px; }
+    .cov-bar { height: 100%; border-radius: 6px; }
+    .cov-bar.ok  { background: var(--ok); }
+    .cov-bar.bad { background: var(--bad); }
+    .cov-val { font-size: 13px; font-weight: 600; }
+
+    /* ── Load state ── */
+    #loading { color: var(--muted); text-align: center; padding: 60px; font-size: 15px; }
+    #error { color: var(--bad); background: #2a0f0f; border: 1px solid #6b2d2d; border-radius: 10px; padding: 16px; margin-bottom: 16px; display: none; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div id="loading">Loading run data…</div>
+  <div id="error"></div>
+
+  <div id="content" style="display:none">
+
+    <div class="topbar">
+      <h1 id="run-title">Run —</h1>
+      <span id="run-badge" class="badge"></span>
+      <a href="/test-reports">&#8592; All Reports</a>
+    </div>
+
+    <div class="summary-strip" id="stats"></div>
+
+    <div class="quality-warn" id="quality-warn" style="display:none">
+      <b>Evidence issues:</b> <span id="quality-text"></span>
+    </div>
+
+    <div class="section" id="cov-section">
+      <h2>Coverage</h2>
+      <div class="cov-grid" id="cov-grid"></div>
+    </div>
+
+    <div class="section">
+      <h2>Test Results <span id="test-count"></span></h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Error / Notes</th>
+              <th>Screenshots</th>
+            </tr>
+          </thead>
+          <tbody id="test-rows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Screenshots <span id="shot-count"></span></h2>
+      <div id="shot-gallery"></div>
+    </div>
+
+    <div class="section">
+      <h2>Video Recording</h2>
+      <div id="video-section"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const CONFIG = {
+  workspace: "[[WORKSPACE]]",
+  runId:    "[[RUN_ID]]",
+};
+
+function esc(v) {
+  return String(v ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function badge(s) {
+  const cls = "badge badge-" + (s || "unknown").toLowerCase();
+  return `<span class="${cls}">${esc(s)}</span>`;
+}
+
+function bar(pct, good) {
+  const cls = pct >= 100 && good ? "ok" : pct < 50 ? "bad" : "warn";
+  return `<div class="cov-bar-bg"><div class="cov-bar ${cls}" style="width:${Math.min(100,pct)}%"></div></div>`;
+}
+
+async function load() {
+  const { workspace, runId } = CONFIG;
+  const base = `/test-reports/${workspace}/${runId}`;
+
+  let manifest, coverage;
+  try {
+    const [mRes, cRes] = await Promise.all([
+      fetch(`${base}/manifest.json`),
+      fetch(`${base}/coverage.json`).catch(() => null),
+    ]);
+    if (!mRes.ok) throw new Error(`manifest: ${mRes.status}`);
+    manifest = await mRes.json();
+    if (cRes && cRes.ok) coverage = await cRes.json().catch(() => null);
+  } catch(e) {
+    document.getElementById("error").textContent = "Failed to load run data: " + e.message;
+    document.getElementById("error").style.display = "block";
+    document.getElementById("loading").style.display = "none";
+    return;
+  }
+
+  document.getElementById("loading").style.display = "none";
+  document.getElementById("content").style.display = "block";
+
+  // Title + badge
+  document.getElementById("run-title").textContent = `Run ${runId}`;
+  const status = (manifest.status || "unknown").toLowerCase();
+  document.getElementById("run-badge").className = "badge badge-" + status;
+  document.getElementById("run-badge").textContent = status;
+
+  // Summary stats
+  const sum = manifest.summary || {};
+  const total = sum.total || 0, passed = sum.passed || 0,
+        failed = sum.failed || 0, skipped = sum.skipped || 0,
+        blocked = sum.blocked || manifest.blocked || 0;
+  const passRate = total > 0 ? (passed / total * 100) : 0;
+  document.getElementById("stats").innerHTML = `
+    <div class="stat-card"><div class="stat-label">Total</div><div class="stat-val">${total}</div></div>
+    <div class="stat-card"><div class="stat-label">Passed</div><div class="stat-val ok">${passed}</div></div>
+    <div class="stat-card"><div class="stat-label">Failed</div><div class="stat-val bad">${failed}</div></div>
+    <div class="stat-card"><div class="stat-label">Skipped</div><div class="stat-val warn">${skipped}</div></div>
+    ${blocked ? `<div class="stat-card"><div class="stat-label">Blocked</div><div class="stat-val warn">${blocked}</div></div>` : ""}
+    <div class="stat-card"><div class="stat-label">Pass Rate</div><div class="stat-val ${passRate>=80?"ok":passRate>=50?"warn":"bad"}">${passRate.toFixed(1)}%</div></div>
+  `;
+
+  // Quality warnings
+  const qw = manifest.quality_warning;
+  if (qw) {
+    document.getElementById("quality-text").textContent = qw;
+    document.getElementById("quality-warn").style.display = "block";
+  }
+
+  // Coverage
+  if (coverage) {
+    const cg = document.getElementById("cov-grid");
+    const items = [
+      { label: "Routes",   cov: coverage.route_covered,     tot: coverage.route_total },
+      { label: "Buttons",  cov: coverage.button_covered,     tot: coverage.button_total },
+      { label: "Forms",    cov: coverage.form_covered,        tot: coverage.form_total },
+      { label: "Functional", cov: coverage.functional_covered, tot: coverage.functional_total },
+    ];
+    cg.innerHTML = items.map(x => {
+      const pct = x.tot > 0 ? (x.cov / x.tot * 100) : 0;
+      return `<div class="cov-card">
+        <div class="cov-label">${x.label}</div>
+        ${bar(pct, true)}
+        <div class="cov-val">${x.cov} / ${x.tot} (${pct.toFixed(0)}%)</div>
+      </div>`;
+    }).join("");
+  } else {
+    document.getElementById("cov-section").style.display = "none";
+  }
+
+  // Test rows
+  const tests = manifest.tests || [];
+  document.getElementById("test-count").textContent = `(${tests.length} tests)`;
+  const shotByTest = {};
+  (manifest.screenshots || []).forEach(s => {
+    const k = (s.test_id || "").toLowerCase().replace(/_/g, "-");
+    if (!shotByTest[k]) shotByTest[k] = [];
+    shotByTest[k].push(s);
+  });
+
+  document.getElementById("test-rows").innerHTML = tests.map(t => {
+    const id = t.id || "";
+    const name = t.name || "";
+    const st = (t.status || "unknown").toLowerCase();
+    const err = t.error ? esc(t.error) : "";
+    const key = id.toLowerCase().replace(/_/g, "-");
+    const shots = shotByTest[key] || [];
+    const shotLinks = shots.map(s => {
+      const p = esc(s.path || "");
+      return `<a href="${base}/${p}" target="_blank" rel="noreferrer">${p.split("/").pop()}</a>`;
+    }).join(" ");
+    const errRow = err ? `<div class="err">${err}</div>` : "";
+    const shotRow = shotLinks ? `<div class="shots">${shotLinks}</div>` : "";
+    return `<tr class="row-${st}" onclick="this.classList.toggle('shown')">
+      <td><span class="id">${esc(id)}</span></td>
+      <td><span class="name">${esc(name)}</span></td>
+      <td>${badge(st)}</td>
+      <td>${errRow}</td>
+      <td>${shotRow}</td>
+    </tr>`;
+  }).join("");
+
+  // Screenshots gallery
+  const shots = manifest.screenshots || [];
+  document.getElementById("shot-count").textContent = `(${shots.length} linked)`;
+  if (shots.length > 0) {
+    document.getElementById("shot-gallery").innerHTML = `<div class="shot-grid">` +
+      shots.map(s => {
+        const p = esc(s.path || "");
+        const desc = esc(s.description || p.split("/").pop() || "");
+        return `<div class="shot-card">
+          <a href="${base}/${p}" target="_blank" rel="noreferrer">
+            <img src="${base}/${p}" alt="${desc}" loading="lazy" />
+          </a>
+          <div class="cap">${desc}</div>
+        </div>`;
+      }).join("") + `</div>`;
+  } else {
+    document.getElementById("shot-gallery").innerHTML = `<div class="shot-empty">No screenshots linked in manifest. (${manifest.screenshot_files || 0} files on disk)</div>`;
+  }
+
+  // Video
+  const vid = manifest.video;
+  if (vid && vid.path) {
+    const p = esc(vid.path);
+    const vpath = `${base}/${p}`;
+    document.getElementById("video-section").innerHTML =
+      `<video controls preload="metadata" src="${vpath}">
+         <a href="${vpath}">Download video</a>
+       </video>
+       <p style="color:var(--muted);font-size:12px;margin-top:6px">File: ${esc(p)}</p>`;
+  } else {
+    document.getElementById("video-section").innerHTML = `<div class="video-missing">No video recording for this run.</div>`;
+  }
+}
+
+load().catch(e => {
+  document.getElementById("error").textContent = e.message;
+  document.getElementById("error").style.display = "block";
+  document.getElementById("loading").style.display = "none";
+});
+</script>
+</body>
+</html>
