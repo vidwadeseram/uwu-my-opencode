@@ -76,12 +76,13 @@ impl TunnelManager {
 
         info!(command = %cmd_str, port = local_port, "starting cloudflared tunnel");
 
-        let mut child = Command::new("sh")
-            .arg("-c")
-            .arg(format!(
-                "exec cloudflared tunnel --url http://127.0.0.1:{} --no-autoupdate",
-                local_port
-            ))
+        let mut child = Command::new("cloudflared")
+            .args([
+                "tunnel",
+                "--url",
+                &format!("http://127.0.0.1:{}", local_port),
+                "--no-autoupdate",
+            ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -90,11 +91,9 @@ impl TunnelManager {
         let child_pid = child.id();
         let tunnel_url = parse_tunnel_url_from_child(&mut child).await;
 
-        let _ = child.wait().await;
-
         let key = Self::tunnel_key(workspace_id, local_port);
 
-        if let Some(_pid) = child_pid {
+        if let Some(pid) = child_pid {
             let _ = self.supervisor.track(key, child).await;
         }
 
