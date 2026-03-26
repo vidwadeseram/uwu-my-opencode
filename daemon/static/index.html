@@ -660,7 +660,7 @@
               <div class="actions" style="margin-top:0.65rem;">
                 ${p.status === "running" ? "" : '<button data-action="start">Start</button>'}
                 ${p.status === "running" ? '<button data-action="stop">Stop</button>' : ""}
-                <button data-action="publish-frontends">Publish Frontends</button>
+                ${(p.preview_urls || []).some(u => u.public_url) ? '<button data-action="stop-frontends">Stop Frontends</button>' : '<button data-action="publish-frontends">Publish Frontends</button>'}
                 <button data-action="tmux-test-log">TMUX Test Log</button>
                 <button class="danger" data-action="delete">Delete</button>
               </div>
@@ -725,6 +725,14 @@
           const skipped = Array.isArray(result.skipped_ports) ? result.skipped_ports.join(", ") : "";
           setGlobalSuccess(`frontend publish completed. published: ${published || "none"}; skipped: ${skipped || "none"}`);
           return;
+        }
+
+        if (action === "stop-frontends") {
+          const result = await fetchJson(`/api/projects/${id}/stop-frontends`, { method: "POST" });
+          await loadDashboard();
+          const stopped = Array.isArray(result.stopped_ports) ? result.stopped_ports.join(", ") : "";
+          setGlobalSuccess(`frontend tunnels stopped. stopped: ${stopped || "none"}`);
+          return;
         } else {
           await fetchJson(`/api/projects/${id}/${action}`, { method: "POST" });
           await loadDashboard();
@@ -742,6 +750,8 @@
               ? "TMUX Test Log"
               : action === "publish-frontends"
                 ? "Publish Frontends"
+              : action === "stop-frontends"
+                ? "Stop Frontends"
               : action.charAt(0).toUpperCase() + action.slice(1);
         }
       }

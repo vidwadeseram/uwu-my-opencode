@@ -98,6 +98,12 @@ pub struct PublishFrontendsResponse {
     pub skipped_ports: Vec<u16>,
 }
 
+#[derive(Serialize)]
+pub struct StopFrontendsResponse {
+    pub workspace: WorkspaceResponse,
+    pub stopped_ports: Vec<u16>,
+}
+
 #[derive(Deserialize)]
 struct FrontendManifest {
     #[serde(default)]
@@ -359,6 +365,7 @@ pub fn create_router(ctx: AppContext) -> Router {
             "/api/workspaces/{id}/publish-frontends",
             post(publish_frontends),
         )
+        .route("/api/workspaces/{id}/stop-frontends", post(stop_frontends))
         .route(
             "/api/workspaces/{id}/previews",
             get(list_previews)
@@ -372,6 +379,7 @@ pub fn create_router(ctx: AppContext) -> Router {
             "/api/projects/{id}/publish-frontends",
             post(publish_frontends),
         )
+        .route("/api/projects/{id}/stop-frontends", post(stop_frontends))
         .route(
             "/api/projects/{id}/tmux-test-log",
             post(create_tmux_test_log),
@@ -680,6 +688,39 @@ async fn publish_frontends(
         published_ports,
         skipped_ports,
     }))
+}
+
+async fn stop_frontends(
+    State(ctx): State<AppContext>,
+    Path(id): Path<String>,
+) -> Result<Json<StopFrontendsResponse>, AppError> {
+    sync_state_with_workspace_dirs(&ctx).await?;
+    let ws = resolve_workspace_by_id_or_name(&ctx, &id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("workspace '{id}' not found")))?;
+
+    let stopped_ports = stop_declared_frontends(&ctx, &ws).await;
+    let workspace = workspace_response_with_links(&ctx, &ws).await;
+
+    Ok(Json(StopFrontendsResponse {
+        workspace,
+        stopped_ports,
+    }))
+}
+
+async fn stop_declared_frontends(ctx: &AppContext, ws: &crate::state::Workspace) -> Vec<u16> {
+    let tunnel_mgr = TunnelManager::new(ctx.config.clone(), ctx.supervisor.clone());
+    let existing_tunnels = ctx.state.list_tunnels(&ws.id).await;
+    let mut stopped = Vec::new();
+
+    for tunnel in existing_tunnels {
+        if tunnel_mgr.stop_tunnel(&ws.id, tunnel.local_port).await {
+            let _ = ctx.state.remove_tunnel(&ws.id, tunnel.local_port).await;
+            stopped.push(tunnel.local_port);
+        }
+    }
+
+    stopped
 }
 
 async fn list_test_reports(
