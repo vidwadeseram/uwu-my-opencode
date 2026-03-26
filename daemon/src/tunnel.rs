@@ -37,32 +37,35 @@ impl TunnelManager {
         local_port: u16,
     ) -> Result<TunnelCommandResult, AppError> {
         if !self.config.execute_commands {
-            let cmd_str = format!("cloudflared (dry-run, port {})", local_port);
+            let cmd_str = format!("cloudflared named tunnel (dry-run, port {})", local_port);
             info!(command = %cmd_str, "dry-run mode, skipping tunnel execution");
             return Ok(TunnelCommandResult {
                 command: cmd_str,
                 executed: false,
                 tunnel_url: Some(format!(
-                    "https://<random>.trycloudflare.com (dry-run, port {})",
+                    "https://<subdomain>.vidwadeseram.com (dry-run, port {})",
                     local_port
                 )),
                 pid: None,
-                backend: "cloudflared",
+                backend: "cloudflared-named",
             });
         }
 
         if let Some(result) = self
-            .start_localtunnel_tunnel(workspace_id, local_port)
+            .start_named_cloudflared_tunnel(workspace_id, local_port)
             .await
         {
             if result.tunnel_url.is_some() {
                 return Ok(result);
             }
-            warn!(port = local_port, "localtunnel failed, trying cloudflared");
+            warn!(
+                port = local_port,
+                "named cloudflared failed, trying quick cloudflared"
+            );
         } else {
             warn!(
                 port = local_port,
-                "localtunnel failed to start, trying cloudflared"
+                "named cloudflared not configured or failed, trying quick cloudflared"
             );
         }
 
@@ -73,15 +76,84 @@ impl TunnelManager {
             if result.tunnel_url.is_some() {
                 return Ok(result);
             }
-            warn!(port = local_port, "cloudflared failed, trying serveo");
+            warn!(
+                port = local_port,
+                "quick cloudflared failed, trying localtunnel"
+            );
         } else {
             warn!(
                 port = local_port,
-                "cloudflared failed to start, trying serveo"
+                "quick cloudflared failed to start, trying localtunnel"
+            );
+        }
+
+        if let Some(result) = self
+            .start_localtunnel_tunnel(workspace_id, local_port)
+            .await
+        {
+            if result.tunnel_url.is_some() {
+                return Ok(result);
+            }
+            warn!(port = local_port, "localtunnel failed, trying serveo");
+        } else {
+            warn!(
+                port = local_port,
+                "localtunnel failed to start, trying serveo"
             );
         }
 
         return Ok(self.start_serveo_tunnel(workspace_id, local_port).await);
+    }
+
+    async fn start_named_cloudflared_tunnel(
+        &self,
+        workspace_id: &str,
+        local_port: u16,
+    ) -> Option<TunnelCommandResult> {
+        let home = std::env::var("HOME").ok()?;
+        let config_path = std::path::PathBuf::from(format!("{}/.cloudflared/config.yml", home));
+        if !config_path.exists() {
+            warn!("no cloudflared config at {:?}", config_path);
+            return None;
+        }
+
+        let config_content = tokio::fs::read_to_string(&config_path).await.ok()?;
+        let ingress = parse_cloudflared_ingress(&config_content)?;
+        let hostname = ingress.get(&local_port)?;
+
+        info!(
+            port = local_port,
+            hostname, "using named cloudflared tunnel"
+        );
+
+        let tunnel_name = extract_tunnel_name_from_config(&config_content)?;
+
+        let key = Self::tunnel_key(workspace_id, local_port);
+        let existing_pid = self.supervisor.get_pid(&key).await;
+
+        if existing_pid.is_none() {
+            info!(tunnel = %tunnel_name, "starting named cloudflared tunnel");
+            let mut child = Command::new("cloudflared")
+                .args(["tunnel", "run", &tunnel_name])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .ok()?;
+
+            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+            if let Some(pid) = child.id() {
+                self.supervisor.track_pid(key.clone(), pid).await;
+            }
+        }
+
+        Some(TunnelCommandResult {
+            command: format!("cloudflared tunnel run {}", tunnel_name),
+            executed: true,
+            tunnel_url: Some(format!("https://{}", hostname)),
+            pid: self.supervisor.get_pid(&key).await,
+            backend: "cloudflared-named",
+        })
     }
 
     async fn start_localtunnel_tunnel(
@@ -353,4 +425,54 @@ async fn parse_serveo_url_from_child(child: &mut tokio::process::Child) -> Optio
             None
         }
     }
+}
+
+fn parse_cloudflared_ingress(config: &str) -> Option<std::collections::HashMap<u16, String>> {
+    let mut port_to_hostname = std::collections::HashMap::new();
+    let mut current_hostname: Option<String> = None;
+
+    for line in config.lines() {
+        let line = line.trim();
+        if line.starts_with("hostname:") {
+            if let Some(hostname) = line.strip_prefix("hostname:") {
+                current_hostname = Some(hostname.trim().to_string());
+            }
+        } else if line.starts_with("service:") {
+            if let Some(service) = line.strip_prefix("service:") {
+                let service = service.trim();
+                if service.starts_with("http://localhost:")
+                    || service.starts_with("http://127.0.0.1:")
+                {
+                    if let Some(port_str) = service.rsplit(':').next() {
+                        if let Ok(port) = port_str.parse::<u16>() {
+                            if let Some(hostname) = &current_hostname {
+                                port_to_hostname.insert(port, hostname.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if port_to_hostname.is_empty() {
+        None
+    } else {
+        Some(port_to_hostname)
+    }
+}
+
+fn extract_tunnel_name_from_config(config: &str) -> Option<String> {
+    for line in config.lines() {
+        let line = line.trim();
+        if line.starts_with("tunnel:") {
+            if let Some(name) = line.strip_prefix("tunnel:") {
+                let name = name.trim();
+                if !name.is_empty() && !name.starts_with('<') {
+                    return Some(name.to_string());
+                }
+            }
+        }
+    }
+    None
 }

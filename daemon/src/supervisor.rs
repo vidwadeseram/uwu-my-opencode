@@ -34,6 +34,10 @@ impl ProcessSupervisor {
         self.children.lock().await.insert(key, pid);
     }
 
+    pub async fn get_pid(&self, key: &str) -> Option<u32> {
+        self.children.lock().await.get(key).copied()
+    }
+
     pub async fn kill(&self, key: &str) -> bool {
         let pid = self.children.lock().await.remove(key);
         match pid {
