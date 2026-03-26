@@ -19,6 +19,7 @@ pub struct TunnelCommandResult {
     pub executed: bool,
     pub tunnel_url: Option<String>,
     pub pid: Option<u32>,
+    pub backend: &'static str,
 }
 
 impl TunnelManager {
@@ -35,25 +36,94 @@ impl TunnelManager {
         workspace_id: &str,
         local_port: u16,
     ) -> Result<TunnelCommandResult, AppError> {
-        let cmd_str = format!(
-            "cloudflared tunnel --url http://127.0.0.1:{} --no-autoupdate",
-            local_port
-        );
-
         if !self.config.execute_commands {
+            let cmd_str = format!("serveo (dry-run, port {})", local_port);
             info!(command = %cmd_str, "dry-run mode, skipping tunnel execution");
             return Ok(TunnelCommandResult {
                 command: cmd_str,
                 executed: false,
                 tunnel_url: Some(format!(
-                    "https://<generated-subdomain>.trycloudflare.com (dry-run, port {})",
+                    "https://<generated-subdomain>.serveousercontent.com (dry-run, port {})",
                     local_port
                 )),
                 pid: None,
+                backend: "serveo",
             });
         }
 
-        let has_cloudflared = tokio::process::Command::new("which")
+        let result = self.start_serveo_tunnel(workspace_id, local_port).await;
+
+        if result.tunnel_url.is_none() {
+            info!(port = local_port, "serveo failed, trying cloudflared");
+            let cf_result = self
+                .start_cloudflared_tunnel(workspace_id, local_port)
+                .await;
+            if cf_result.tunnel_url.is_some() {
+                return Ok(cf_result);
+            }
+        }
+
+        Ok(result)
+    }
+
+    async fn start_serveo_tunnel(
+        &self,
+        workspace_id: &str,
+        local_port: u16,
+    ) -> TunnelCommandResult {
+        let cmd_str = format!(
+            "ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=60 -R 80:localhost:{} serveo.net",
+            local_port
+        );
+
+        info!(command = %cmd_str, port = local_port, "starting serveo tunnel");
+
+        let mut child = Command::new("ssh")
+            .args([
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "ServerAliveInterval=60",
+                "-o",
+                "BatchMode=yes",
+                "-R",
+                &format!("80:localhost:{}", local_port),
+                "serveo.net",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| AppError::CommandFailed(format!("failed to spawn ssh: {}", e)))
+            .unwrap();
+
+        let tunnel_url = parse_serveo_url_from_child(&mut child).await;
+
+        let pid = child.id();
+        let key = Self::tunnel_key(workspace_id, local_port);
+        if let Some(p) = pid {
+            self.supervisor.track_pid(key, p).await;
+        }
+
+        TunnelCommandResult {
+            command: cmd_str,
+            executed: true,
+            tunnel_url,
+            pid,
+            backend: "serveo",
+        }
+    }
+
+    async fn start_cloudflared_tunnel(
+        &self,
+        workspace_id: &str,
+        local_port: u16,
+    ) -> TunnelCommandResult {
+        let cmd_str = format!(
+            "cloudflared tunnel --url http://127.0.0.1:{} --no-autoupdate",
+            local_port
+        );
+
+        let has_cloudflared = Command::new("which")
             .arg("cloudflared")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -63,16 +133,14 @@ impl TunnelManager {
             .unwrap_or(false);
 
         if !has_cloudflared {
-            info!(
-                port = local_port,
-                "cloudflared not found, using localhost URL"
-            );
-            return Ok(TunnelCommandResult {
+            warn!(port = local_port, "cloudflared not found");
+            return TunnelCommandResult {
                 command: cmd_str,
                 executed: false,
-                tunnel_url: Some(format!("http://127.0.0.1:{}", local_port)),
+                tunnel_url: None,
                 pid: None,
-            });
+                backend: "cloudflared",
+            };
         }
 
         let pidfile_path = format!("/tmp/cloudflared-{}.pid", local_port);
@@ -91,10 +159,10 @@ impl TunnelManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| AppError::CommandFailed(format!("failed to spawn cloudflared: {}", e)))?;
+            .map_err(|e| AppError::CommandFailed(format!("failed to spawn cloudflared: {}", e)))
+            .unwrap();
 
-        let tunnel_url = parse_tunnel_url_from_child(&mut child).await;
-
+        let tunnel_url = parse_cloudflared_url_from_child(&mut child).await;
         let daemon_pid = read_pidfile(&pidfile_path).await;
 
         let key = Self::tunnel_key(workspace_id, local_port);
@@ -102,25 +170,25 @@ impl TunnelManager {
             self.supervisor.track_pid(key, pid).await;
         }
 
-        Ok(TunnelCommandResult {
+        TunnelCommandResult {
             command: cmd_str,
             executed: true,
             tunnel_url,
             pid: daemon_pid,
-        })
+            backend: "cloudflared",
+        }
     }
 
     pub async fn stop_tunnel(&self, workspace_id: &str, local_port: u16) -> bool {
         let key = Self::tunnel_key(workspace_id, local_port);
         let killed = self.supervisor.kill(&key).await;
-        let pidfile_path = format!("/tmp/cloudflared-{}.pid", local_port);
-        let _ = fs::remove_file(&pidfile_path).await;
+        let _ = fs::remove_file(format!("/tmp/cloudflared-{}.pid", local_port)).await;
         if !killed {
             let out = Command::new("sh")
                 .args([
                     "-c",
                     &format!(
-                        "pkill -f 'cloudflared.*--url http://127.0.0.1:{}'",
+                        "pkill -f 'cloudflared.*--url http://127.0.0.1:{}' || pkill -f 'serveo.net' || true",
                         local_port
                     ),
                 ])
@@ -139,14 +207,53 @@ async fn read_pidfile(path: &str) -> Option<u32> {
     content.trim().parse::<u32>().ok()
 }
 
-async fn parse_tunnel_url_from_child(child: &mut tokio::process::Child) -> Option<String> {
+async fn parse_cloudflared_url_from_child(child: &mut tokio::process::Child) -> Option<String> {
     let stderr = child.stderr.take()?;
     let reader = BufReader::new(stderr);
     let mut lines = reader.lines();
 
     let url_re = Regex::new(r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com").ok()?;
+    let err_re = Regex::new(r"(?i)(429|rate.limit|too.many.requests)").ok()?;
 
     let timeout = tokio::time::Duration::from_secs(15);
+    let result = tokio::time::timeout(timeout, async {
+        while let Ok(Some(line)) = lines.next_line().await {
+            if err_re.is_match(&line) {
+                warn!(line = %line, "cloudflared rate limited");
+                return Some(String::new());
+            }
+            if let Some(m) = url_re.find(&line) {
+                return Some(m.as_str().to_string());
+            }
+        }
+        None
+    })
+    .await;
+
+    match result {
+        Ok(Some(url)) if !url.is_empty() => {
+            info!(url = %url, "parsed cloudflared tunnel URL");
+            Some(url)
+        }
+        Ok(_) => {
+            warn!("cloudflared exited without producing a tunnel URL");
+            None
+        }
+        Err(_) => {
+            warn!("timed out waiting for cloudflared tunnel URL");
+            None
+        }
+    }
+}
+
+async fn parse_serveo_url_from_child(child: &mut tokio::process::Child) -> Option<String> {
+    let stderr = child.stderr.take()?;
+    let reader = BufReader::new(stderr);
+    let mut lines = reader.lines();
+
+    let url_re = Regex::new(r"https://[a-zA-Z0-9\-]+\.serveousercontent\.com").ok()?;
+
+    let timeout = tokio::time::Duration::from_secs(10);
     let result = tokio::time::timeout(timeout, async {
         while let Ok(Some(line)) = lines.next_line().await {
             if let Some(m) = url_re.find(&line) {
@@ -159,15 +266,15 @@ async fn parse_tunnel_url_from_child(child: &mut tokio::process::Child) -> Optio
 
     match result {
         Ok(Some(url)) => {
-            info!(url = %url, "parsed cloudflared tunnel URL");
+            info!(url = %url, "parsed serveo tunnel URL");
             Some(url)
         }
         Ok(None) => {
-            warn!("cloudflared exited without producing a tunnel URL");
+            warn!("serveo exited without producing a tunnel URL");
             None
         }
         Err(_) => {
-            warn!("timed out waiting for cloudflared tunnel URL");
+            warn!("timed out waiting for serveo tunnel URL");
             None
         }
     }
