@@ -3,7 +3,7 @@
 	url = https://github.com/tmux/tmux.git
 [submodule "opencode"]
 	path = opencode
-	url = https://github.com/sst/opencode.git
+	url = https://github.com/vidwadeseram/opencode.git
 [submodule "oh-my-opencode"]
 	path = oh-my-opencode
 	url = https://github.com/code-yeongyu/oh-my-openagent.git
