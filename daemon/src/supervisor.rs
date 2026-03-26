@@ -40,12 +40,21 @@ impl ProcessSupervisor {
         let mut children = self.children.lock().await;
         if let Some(mut child) = children.remove(key) {
             let pid = child.id();
-            info!(key = %key, pid = ?pid, "killing child process");
-            if let Err(e) = child.kill().await {
-                warn!(key = %key, error = %e, "failed to kill child process");
-                return false;
+            info!(key = %key, pid = ?pid, "reaping child process");
+            // Use wait() instead of kill(): wait() properly reaps zombies
+            // (returns immediately with exit status if already zombie) and
+            // also waits for a running process to exit. kill() fails with
+            // ESRCH on zombies, leaving them zombie forever.
+            match child.wait().await {
+                Ok(status) => {
+                    info!(key = %key, pid = ?pid, status = %status, "child reaped successfully");
+                    true
+                }
+                Err(e) => {
+                    warn!(key = %key, error = %e, "failed to reap child");
+                    false
+                }
             }
-            true
         } else {
             false
         }
@@ -55,10 +64,8 @@ impl ProcessSupervisor {
         let mut children = self.children.lock().await;
         for (key, mut child) in children.drain() {
             let pid = child.id();
-            info!(key = %key, pid = ?pid, "killing child process (shutdown)");
-            if let Err(e) = child.kill().await {
-                warn!(key = %key, error = %e, "failed to kill child during shutdown");
-            }
+            info!(key = %key, pid = ?pid, "reaping child process (shutdown)");
+            let _ = child.wait().await;
         }
     }
 
