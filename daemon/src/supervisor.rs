@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::process::Child;
+use tokio::process::Command;
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::info;
 
 #[derive(Debug)]
 pub struct TrackedProcess {
@@ -11,7 +11,7 @@ pub struct TrackedProcess {
 }
 
 pub struct ProcessSupervisor {
-    children: Arc<Mutex<HashMap<String, Child>>>,
+    children: Arc<Mutex<HashMap<String, u32>>>,
 }
 
 impl Clone for ProcessSupervisor {
@@ -29,52 +29,60 @@ impl ProcessSupervisor {
         }
     }
 
-    pub async fn track(&self, key: String, child: Child) -> Option<u32> {
-        let pid = child.id();
-        info!(key = %key, pid = ?pid, "tracking child process");
-        self.children.lock().await.insert(key, child);
-        pid
+    pub async fn track_pid(&self, key: String, pid: u32) {
+        info!(key = %key, pid = pid, "tracking process by PID");
+        self.children.lock().await.insert(key, pid);
     }
 
     pub async fn kill(&self, key: &str) -> bool {
-        let mut children = self.children.lock().await;
-        if let Some(mut child) = children.remove(key) {
-            let pid = child.id();
-            info!(key = %key, pid = ?pid, "reaping child process");
-            // Use wait() instead of kill(): wait() properly reaps zombies
-            // (returns immediately with exit status if already zombie) and
-            // also waits for a running process to exit. kill() fails with
-            // ESRCH on zombies, leaving them zombie forever.
-            match child.wait().await {
-                Ok(status) => {
-                    info!(key = %key, pid = ?pid, status = %status, "child reaped successfully");
-                    true
-                }
-                Err(e) => {
-                    warn!(key = %key, error = %e, "failed to reap child");
-                    false
+        let pid = self.children.lock().await.remove(key);
+        match pid {
+            Some(pid) => {
+                info!(key = %key, pid = pid, "killing process by PID");
+                let out = Command::new("kill")
+                    .arg("-TERM")
+                    .arg(pid.to_string())
+                    .output();
+                match out.await {
+                    Ok(o) if o.status.success() => true,
+                    _ => {
+                        let _ = Command::new("kill")
+                            .arg("-9")
+                            .arg(pid.to_string())
+                            .output()
+                            .await;
+                        true
+                    }
                 }
             }
-        } else {
-            false
+            None => false,
         }
     }
 
     pub async fn kill_all(&self) {
-        let mut children = self.children.lock().await;
-        for (key, mut child) in children.drain() {
-            let pid = child.id();
-            info!(key = %key, pid = ?pid, "reaping child process (shutdown)");
-            let _ = child.wait().await;
+        let pids: Vec<u32> = self
+            .children
+            .lock()
+            .await
+            .drain()
+            .map(|(_, pid)| pid)
+            .collect();
+        for pid in pids {
+            let _ = Command::new("kill")
+                .arg("-TERM")
+                .arg(pid.to_string())
+                .output()
+                .await;
         }
     }
 
     pub async fn list(&self) -> Vec<TrackedProcess> {
-        let children = self.children.lock().await;
-        children
+        self.children
+            .lock()
+            .await
             .iter()
-            .map(|(key, child)| TrackedProcess {
-                pid: child.id().unwrap_or(0),
+            .map(|(key, &pid)| TrackedProcess {
+                pid,
                 label: key.clone(),
             })
             .collect()

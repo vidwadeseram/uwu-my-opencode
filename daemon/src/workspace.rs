@@ -1307,7 +1307,10 @@ echo "created ${OUT}"
                 .spawn()
                 .map_err(|e| AppError::CommandFailed(format!("failed to spawn ttyd: {}", e)))?;
 
-            self.supervisor.track("ttyd:main".to_string(), child).await;
+            let pid = child.id();
+            if let Some(p) = pid {
+                self.supervisor.track_pid("ttyd:main".to_string(), p).await;
+            }
             Some(format!("http://127.0.0.1:{}", ttyd_port))
         } else {
             Some(format!("http://127.0.0.1:{} (dry-run)", ttyd_port))
@@ -1427,7 +1430,10 @@ echo "created ${OUT}"
                 .map_err(|e| AppError::CommandFailed(format!("failed to spawn ttyd: {}", e)))?;
 
             let key = Self::ttyd_key(workspace_name);
-            self.supervisor.track(key, child).await;
+            let pid = child.id();
+            if let Some(p) = pid {
+                self.supervisor.track_pid(key, p).await;
+            }
 
             commands.push(CommandResult {
                 command: ttyd_cmd_str,

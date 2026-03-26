@@ -3,6 +3,7 @@ use crate::error::AppError;
 use crate::supervisor::ProcessSupervisor;
 use regex::Regex;
 use std::process::Stdio;
+use tokio::fs;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tracing::{info, warn};
@@ -74,13 +75,17 @@ impl TunnelManager {
             });
         }
 
-        info!(command = %cmd_str, port = local_port, "starting cloudflared tunnel");
+        let pidfile_path = format!("/tmp/cloudflared-{}.pid", local_port);
+
+        info!(command = %cmd_str, port = local_port, pidfile = %pidfile_path, "starting cloudflared tunnel");
 
         let mut child = Command::new("cloudflared")
             .args([
                 "tunnel",
                 "--url",
                 &format!("http://127.0.0.1:{}", local_port),
+                "--pidfile",
+                &pidfile_path,
                 "--no-autoupdate",
             ])
             .stdout(Stdio::piped())
@@ -88,26 +93,28 @@ impl TunnelManager {
             .spawn()
             .map_err(|e| AppError::CommandFailed(format!("failed to spawn cloudflared: {}", e)))?;
 
-        let child_pid = child.id();
         let tunnel_url = parse_tunnel_url_from_child(&mut child).await;
 
-        let key = Self::tunnel_key(workspace_id, local_port);
+        let daemon_pid = read_pidfile(&pidfile_path).await;
 
-        if let Some(pid) = child_pid {
-            let _ = self.supervisor.track(key, child).await;
+        let key = Self::tunnel_key(workspace_id, local_port);
+        if let Some(pid) = daemon_pid {
+            self.supervisor.track_pid(key, pid).await;
         }
 
         Ok(TunnelCommandResult {
             command: cmd_str,
             executed: true,
             tunnel_url,
-            pid: child_pid,
+            pid: daemon_pid,
         })
     }
 
     pub async fn stop_tunnel(&self, workspace_id: &str, local_port: u16) -> bool {
         let key = Self::tunnel_key(workspace_id, local_port);
         let killed = self.supervisor.kill(&key).await;
+        let pidfile_path = format!("/tmp/cloudflared-{}.pid", local_port);
+        let _ = fs::remove_file(&pidfile_path).await;
         if !killed {
             let out = Command::new("sh")
                 .args([
@@ -125,6 +132,11 @@ impl TunnelManager {
         }
         killed
     }
+}
+
+async fn read_pidfile(path: &str) -> Option<u32> {
+    let content = fs::read_to_string(path).await.ok()?;
+    content.trim().parse::<u32>().ok()
 }
 
 async fn parse_tunnel_url_from_child(child: &mut tokio::process::Child) -> Option<String> {
