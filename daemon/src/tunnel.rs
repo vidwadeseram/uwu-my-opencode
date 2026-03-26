@@ -433,12 +433,12 @@ fn parse_cloudflared_ingress(config: &str) -> Option<std::collections::HashMap<u
 
     for line in config.lines() {
         let line = line.trim();
-        if line.starts_with("hostname:") {
-            if let Some(hostname) = line.strip_prefix("hostname:") {
+        if line.contains("hostname:") {
+            if let Some(hostname) = line.split("hostname:").nth(1) {
                 current_hostname = Some(hostname.trim().to_string());
             }
-        } else if line.starts_with("service:") {
-            if let Some(service) = line.strip_prefix("service:") {
+        } else if line.contains("service:") {
+            if let Some(service) = line.split("service:").nth(1) {
                 let service = service.trim();
                 if service.starts_with("http://localhost:")
                     || service.starts_with("http://127.0.0.1:")
