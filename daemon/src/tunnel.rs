@@ -52,32 +52,32 @@ impl TunnelManager {
         }
 
         if let Some(result) = self
-            .start_cloudflared_tunnel(workspace_id, local_port)
-            .await
-        {
-            if result.tunnel_url.is_some() {
-                return Ok(result);
-            }
-            warn!(port = local_port, "cloudflared failed, trying localtunnel");
-        } else {
-            warn!(
-                port = local_port,
-                "cloudflared failed to start, trying localtunnel"
-            );
-        }
-
-        if let Some(result) = self
             .start_localtunnel_tunnel(workspace_id, local_port)
             .await
         {
             if result.tunnel_url.is_some() {
                 return Ok(result);
             }
-            warn!(port = local_port, "localtunnel failed, trying serveo");
+            warn!(port = local_port, "localtunnel failed, trying cloudflared");
         } else {
             warn!(
                 port = local_port,
-                "localtunnel failed to start, trying serveo"
+                "localtunnel failed to start, trying cloudflared"
+            );
+        }
+
+        if let Some(result) = self
+            .start_cloudflared_tunnel(workspace_id, local_port)
+            .await
+        {
+            if result.tunnel_url.is_some() {
+                return Ok(result);
+            }
+            warn!(port = local_port, "cloudflared failed, trying serveo");
+        } else {
+            warn!(
+                port = local_port,
+                "cloudflared failed to start, trying serveo"
             );
         }
 
