@@ -150,7 +150,9 @@ impl StateManager {
             )));
         }
 
-        let id = Uuid::new_v4().to_string();
+        // Use deterministic UUID v5 so workspace ID is stable across restarts
+        let namespace = Uuid::NAMESPACE_DNS;
+        let id = Uuid::new_v5(&namespace, name.as_bytes()).to_string();
         let path = workspace_root.join(&name);
         let port = state.next_opencode_port;
         let ttyd_port = state.next_ttyd_port;
