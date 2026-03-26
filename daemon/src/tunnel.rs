@@ -37,33 +37,18 @@ impl TunnelManager {
         local_port: u16,
     ) -> Result<TunnelCommandResult, AppError> {
         if !self.config.execute_commands {
-            let cmd_str = format!("localtunnel (dry-run, port {})", local_port);
+            let cmd_str = format!("cloudflared (dry-run, port {})", local_port);
             info!(command = %cmd_str, "dry-run mode, skipping tunnel execution");
             return Ok(TunnelCommandResult {
                 command: cmd_str,
                 executed: false,
                 tunnel_url: Some(format!(
-                    "https://<random>.loca.lt (dry-run, port {})",
+                    "https://<random>.trycloudflare.com (dry-run, port {})",
                     local_port
                 )),
                 pid: None,
-                backend: "localtunnel",
+                backend: "cloudflared",
             });
-        }
-
-        if let Some(result) = self
-            .start_localtunnel_tunnel(workspace_id, local_port)
-            .await
-        {
-            if result.tunnel_url.is_some() {
-                return Ok(result);
-            }
-            warn!(port = local_port, "localtunnel failed, trying cloudflared");
-        } else {
-            warn!(
-                port = local_port,
-                "localtunnel failed to start, trying cloudflared"
-            );
         }
 
         if let Some(result) = self
@@ -73,11 +58,26 @@ impl TunnelManager {
             if result.tunnel_url.is_some() {
                 return Ok(result);
             }
-            warn!(port = local_port, "cloudflared failed, trying serveo");
+            warn!(port = local_port, "cloudflared failed, trying localtunnel");
         } else {
             warn!(
                 port = local_port,
-                "cloudflared failed to start, trying serveo"
+                "cloudflared failed to start, trying localtunnel"
+            );
+        }
+
+        if let Some(result) = self
+            .start_localtunnel_tunnel(workspace_id, local_port)
+            .await
+        {
+            if result.tunnel_url.is_some() {
+                return Ok(result);
+            }
+            warn!(port = local_port, "localtunnel failed, trying serveo");
+        } else {
+            warn!(
+                port = local_port,
+                "localtunnel failed to start, trying serveo"
             );
         }
 
