@@ -4,6 +4,7 @@ use crate::supervisor::ProcessSupervisor;
 use regex::Regex;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
 use tracing::{info, warn};
 
 pub struct TunnelManager {
@@ -75,32 +76,55 @@ impl TunnelManager {
 
         info!(command = %cmd_str, port = local_port, "starting cloudflared tunnel");
 
-        let mut child = tokio::process::Command::new("cloudflared")
-            .arg("tunnel")
-            .arg("--url")
-            .arg(format!("http://127.0.0.1:{}", local_port))
-            .arg("--no-autoupdate")
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "exec cloudflared tunnel --url http://127.0.0.1:{} --no-autoupdate",
+                local_port
+            ))
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| AppError::CommandFailed(format!("failed to spawn cloudflared: {}", e)))?;
 
+        let child_pid = child.id();
         let tunnel_url = parse_tunnel_url_from_child(&mut child).await;
 
+        let _ = child.wait().await;
+
         let key = Self::tunnel_key(workspace_id, local_port);
-        let pid = self.supervisor.track(key, child).await;
+
+        if let Some(_pid) = child_pid {
+            let _ = self.supervisor.track(key, child).await;
+        }
 
         Ok(TunnelCommandResult {
             command: cmd_str,
             executed: true,
             tunnel_url,
-            pid,
+            pid: child_pid,
         })
     }
 
     pub async fn stop_tunnel(&self, workspace_id: &str, local_port: u16) -> bool {
         let key = Self::tunnel_key(workspace_id, local_port);
-        self.supervisor.kill(&key).await
+        let killed = self.supervisor.kill(&key).await;
+        if !killed {
+            let out = Command::new("sh")
+                .args([
+                    "-c",
+                    &format!(
+                        "pkill -f 'cloudflared.*--url http://127.0.0.1:{}'",
+                        local_port
+                    ),
+                ])
+                .output()
+                .await
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            return out;
+        }
+        killed
     }
 }
 
