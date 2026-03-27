@@ -1,0 +1,14 @@
+context:
+  kind: schema
+  version: 1.0
+  task: .toon v1 DSL contract
+required_sections[4]{id,name,rule}:
+  1,context,Must exist as top-level block
+  2,context.kind,Must be one of setup|suite|case
+  3,context.version,Must be 1.0
+  4,typed-collections,Use collection[count]{fields}: with deterministic row counts
+typed_collections[3]{id,name,required_for_kind}:
+  1,commands,setup
+  2,cases,suite
+  3,steps,case
+notes[3]: context values use key:value pairs,list can be inline or row-based,suite case refs must point to test_cases/*.toon

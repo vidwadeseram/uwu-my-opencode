@@ -89,6 +89,7 @@ pub struct AppConfig {
     pub oh_my_opencode_repo: PathBuf,
     pub openagentscontrol_repo: PathBuf,
     pub execute_commands: bool,
+    pub report_db_url: Option<String>,
 }
 
 impl AppConfig {
@@ -96,6 +97,14 @@ impl AppConfig {
         let execute_commands = std::env::var("UWU_EXECUTE_COMMANDS")
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false);
+        let report_db_url = std::env::var("UWU_REPORT_DB_URL")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| {
+                std::env::var("DATABASE_URL")
+                    .ok()
+                    .filter(|v| !v.trim().is_empty())
+            });
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let opencode_repo = if cli.opencode_repo.is_absolute() {
             cli.opencode_repo.clone()
@@ -134,6 +143,7 @@ impl AppConfig {
             oh_my_opencode_repo,
             openagentscontrol_repo,
             execute_commands,
+            report_db_url,
         }
     }
 }

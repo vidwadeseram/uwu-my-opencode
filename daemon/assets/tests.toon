@@ -1,0 +1,8 @@
+context:
+  kind: suite
+  version: 1.0
+  task: smoke suite
+  repo: default
+cases[1]{id,file,required}:
+  1,test_cases/login-flow.toon,true
+artifacts[2]: manifest,coverage

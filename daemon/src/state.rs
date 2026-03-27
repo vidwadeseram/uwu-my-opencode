@@ -16,6 +16,20 @@ pub struct Workspace {
     pub tmux_window: Option<u32>,
     pub status: WorkspaceStatus,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub target: WorkspaceTargetContext,
+    #[serde(default)]
+    pub init_last_status: Option<String>,
+    #[serde(default)]
+    pub init_last_message: Option<String>,
+    #[serde(default)]
+    pub init_last_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WorkspaceTargetContext {
+    #[serde(default)]
+    pub repo: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -175,6 +189,10 @@ impl StateManager {
             tmux_window: Some(state.workspaces.len() as u32),
             status: WorkspaceStatus::Created,
             created_at: Utc::now(),
+            target: WorkspaceTargetContext::default(),
+            init_last_status: None,
+            init_last_message: None,
+            init_last_at: None,
         };
 
         state.workspaces.push(workspace.clone());
@@ -195,6 +213,45 @@ impl StateManager {
             .find(|w| w.id == id)
             .ok_or_else(|| AppError::NotFound(format!("workspace '{id}' not found")))?;
         ws.status = status;
+        let ws = ws.clone();
+        drop(state);
+        self.persist().await?;
+        Ok(ws)
+    }
+
+    pub async fn update_workspace_target(
+        &self,
+        id: &str,
+        target: WorkspaceTargetContext,
+    ) -> Result<Workspace, AppError> {
+        let mut state = self.state.write().await;
+        let ws = state
+            .workspaces
+            .iter_mut()
+            .find(|w| w.id == id)
+            .ok_or_else(|| AppError::NotFound(format!("workspace '{id}' not found")))?;
+        ws.target = target;
+        let ws = ws.clone();
+        drop(state);
+        self.persist().await?;
+        Ok(ws)
+    }
+
+    pub async fn record_workspace_init(
+        &self,
+        id: &str,
+        status: &str,
+        message: Option<String>,
+    ) -> Result<Workspace, AppError> {
+        let mut state = self.state.write().await;
+        let ws = state
+            .workspaces
+            .iter_mut()
+            .find(|w| w.id == id)
+            .ok_or_else(|| AppError::NotFound(format!("workspace '{id}' not found")))?;
+        ws.init_last_status = Some(status.to_string());
+        ws.init_last_message = message;
+        ws.init_last_at = Some(Utc::now());
         let ws = ws.clone();
         drop(state);
         self.persist().await?;

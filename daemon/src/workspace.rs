@@ -7,10 +7,12 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tracing::{info, warn};
 
-const TEMPLATE_CONTENT: &str = include_str!("../assets/TEMPLATE.md");
 const SETUP_CONTENT: &str = include_str!("../assets/SETUP.md");
-const SETUP_GUIDE_CONTENT: &str = include_str!("../assets/SETUP_GUIDE.md");
-const TEST_CASES_CONTENT: &str = include_str!("../assets/TEST_CASES.md");
+const TEST_CONTENT: &str = include_str!("../assets/TEST.md");
+const TOON_SETUP_CONTENT: &str = include_str!("../assets/setup.toon");
+const TOON_TEST_SUITE_CONTENT: &str = include_str!("../assets/tests.toon");
+const TOON_TEST_CASE_CONTENT: &str = include_str!("../assets/test_case.toon");
+const TOON_SCHEMA_CONTENT: &str = include_str!("../assets/toon.schema.toon");
 
 pub struct WorkspaceManager {
     config: AppConfig,
@@ -398,103 +400,24 @@ impl WorkspaceManager {
         let plugins_dir = opencode_dir.join("plugins");
         let commands_dir = opencode_dir.join("command");
         let scripts_dir = dir.join("scripts");
-        let workspace_docs_dir = dir.join("workspace-docs");
-
-        let template_file = dir.join("TEMPLATE.md");
         let setup_file = dir.join("SETUP.md");
-
-        let docs_template_file = workspace_docs_dir.join("TEMPLATE.md");
-        let docs_setup_file = workspace_docs_dir.join("SETUP.md");
-        let docs_test_cases_file = workspace_docs_dir.join("TEST_CASES.md");
+        let test_file = dir.join("TEST.md");
+        let setup_toon_dir = dir.join("setup");
+        let tests_toon_dir = dir.join("tests");
+        let test_cases_toon_dir = dir.join("test_cases");
+        let toon_meta_dir = dir.join(".toon");
+        let legacy_template_file = dir.join("TEMPLATE.md");
+        let legacy_workspace_docs_dir = dir.join("workspace-docs");
 
         let frontends_manifest_file = opencode_dir.join("frontends.json");
 
         tokio::fs::create_dir_all(&plugins_dir).await?;
         tokio::fs::create_dir_all(&commands_dir).await?;
         tokio::fs::create_dir_all(&scripts_dir).await?;
-        tokio::fs::create_dir_all(&workspace_docs_dir).await?;
-
-        if !tokio::fs::try_exists(&docs_template_file).await? {
-            tokio::fs::write(&docs_template_file, TEMPLATE_CONTENT).await?;
-        } else {
-            let existing = tokio::fs::read_to_string(&docs_template_file)
-                .await
-                .unwrap_or_default();
-            if !existing.contains("# Workspace Test Template (Compact)")
-                || !existing.contains("Coverage is only considered complete when route/button/form/functional totals are explicitly recorded")
-                || !existing.contains("11. **Stable capture rule (required before screenshot/pass)**")
-                || !existing.contains("logs/{run_id}/coverage.json")
-                || !existing.contains("--repo` filter for multi-repo workspaces")
-                || !existing.contains("Route-visit-only coverage is NOT sufficient")
-                || !existing.contains("FUNC-*")
-            {
-                tokio::fs::write(&docs_template_file, TEMPLATE_CONTENT).await?;
-            }
-        }
-
-        if !tokio::fs::try_exists(&docs_setup_file).await? {
-            tokio::fs::write(&docs_setup_file, SETUP_GUIDE_CONTENT).await?;
-        } else {
-            let existing = tokio::fs::read_to_string(&docs_setup_file)
-                .await
-                .unwrap_or_default();
-            if !existing.contains("## PostgreSQL bootstrap (required before API start)")
-                || !existing.contains("## API env normalization (required)")
-                || !existing.contains("## Regression report artifact validation")
-                || !existing.contains("coverage.json")
-                || !existing.contains("spinner/skeleton/blank placeholder")
-                || !existing.contains("Video recording placeholder")
-                || !existing.contains("wrong page name like `junk-qr-payments`")
-                || !existing.contains("/start-test --repo <repo-path-or-name>")
-                || !existing.contains("workspace root is not a git repo")
-                || !existing
-                    .contains("## Test data seeding (required before deep functional tests)")
-                || !existing.contains("ensure-superadmin.sh")
-                || !existing.contains("functional_total")
-                || !existing.contains(
-                    "coverage functional_covered must equal functional_total for exhaustive run",
-                )
-            {
-                tokio::fs::write(&docs_setup_file, SETUP_GUIDE_CONTENT).await?;
-            }
-        }
-
-        if !tokio::fs::try_exists(&docs_test_cases_file).await? {
-            tokio::fs::write(&docs_test_cases_file, TEST_CASES_CONTENT).await?;
-        } else {
-            let existing = tokio::fs::read_to_string(&docs_test_cases_file)
-                .await
-                .unwrap_or_default();
-            if !existing.contains("# allinonepos - Exhaustive Test Cases")
-                || !existing.contains("## 2) Route Inventory (Source of Truth)")
-                || !existing.contains("ROUTE-<route_key>")
-                || !existing.contains("## 8.1) Required `coverage.json`")
-                || !existing.contains("index.html still contains video placeholder text")
-                || !existing.contains("LOG-004")
-                || !existing.contains("Every `FAIL` and `BLOCKED` test must have at least one screenshot evidence entry.")
-                || !existing.contains("## 12) Deep Functional Test Scenarios")
-                || !existing.contains("FUNC-KYC-006")
-                || !existing.contains("## 13) Functional Test Execution Contract")
-                || !existing.contains("functional_total")
-                || !existing.contains("functional_covered == functional_total")
-            {
-                tokio::fs::write(&docs_test_cases_file, TEST_CASES_CONTENT).await?;
-            }
-        }
-
-        if !tokio::fs::try_exists(&template_file).await? {
-            tokio::fs::write(&template_file, TEMPLATE_CONTENT).await?;
-        } else {
-            let existing = tokio::fs::read_to_string(&template_file)
-                .await
-                .unwrap_or_default();
-            if existing.contains("## SECTION 1: MERCHANT PORTAL - ALL SECTIONS")
-                || existing.contains("## RESULTS OUTPUT FORMAT")
-                || existing.contains("logs/{YYYY-MM-DD}{HH-MM-SS}.md")
-            {
-                tokio::fs::write(&template_file, TEMPLATE_CONTENT).await?;
-            }
-        }
+        tokio::fs::create_dir_all(&setup_toon_dir).await?;
+        tokio::fs::create_dir_all(&tests_toon_dir).await?;
+        tokio::fs::create_dir_all(&test_cases_toon_dir).await?;
+        tokio::fs::create_dir_all(&toon_meta_dir).await?;
 
         if !tokio::fs::try_exists(&setup_file).await? {
             tokio::fs::write(&setup_file, SETUP_CONTENT).await?;
@@ -502,13 +425,61 @@ impl WorkspaceManager {
             let existing = tokio::fs::read_to_string(&setup_file)
                 .await
                 .unwrap_or_default();
-            if existing.contains("This guide explains how to create a tmux session script")
-                || existing.contains("## PostgreSQL bootstrap (required before API start)")
-                || existing.contains("## Start required backend APIs (tmux session contract)")
-                || existing.contains("## Regression report artifact validation")
+            if existing.contains("workspace-docs/SETUP.md")
+                || existing.contains("This guide explains how to create a tmux session script")
             {
                 tokio::fs::write(&setup_file, SETUP_CONTENT).await?;
             }
+        }
+
+        if !tokio::fs::try_exists(&test_file).await? {
+            tokio::fs::write(&test_file, TEST_CONTENT).await?;
+        } else {
+            let existing = tokio::fs::read_to_string(&test_file)
+                .await
+                .unwrap_or_default();
+            if existing.contains("workspace-docs/TEST_CASES.md")
+                || existing.contains("workspace-docs/TEMPLATE.md")
+            {
+                tokio::fs::write(&test_file, TEST_CONTENT).await?;
+            }
+        }
+
+        let setup_toon_file = setup_toon_dir.join("default.toon");
+        if !tokio::fs::try_exists(&setup_toon_file).await? {
+            tokio::fs::write(&setup_toon_file, TOON_SETUP_CONTENT).await?;
+        }
+
+        let tests_toon_file = tests_toon_dir.join("smoke.toon");
+        if !tokio::fs::try_exists(&tests_toon_file).await? {
+            tokio::fs::write(&tests_toon_file, TOON_TEST_SUITE_CONTENT).await?;
+        }
+
+        let test_case_toon_file = test_cases_toon_dir.join("login-flow.toon");
+        if !tokio::fs::try_exists(&test_case_toon_file).await? {
+            tokio::fs::write(&test_case_toon_file, TOON_TEST_CASE_CONTENT).await?;
+        }
+
+        let toon_schema_file = toon_meta_dir.join("schema.v1.toon");
+        if !tokio::fs::try_exists(&toon_schema_file).await? {
+            tokio::fs::write(&toon_schema_file, TOON_SCHEMA_CONTENT).await?;
+        }
+
+        if tokio::fs::try_exists(&legacy_template_file).await? {
+            tokio::fs::write(
+                &legacy_template_file,
+                "# Deprecated\n\nUse `SETUP.md`, `TEST.md`, and `.toon` files (`setup/`, `tests/`, `test_cases/`) as the canonical contract.\n",
+            )
+            .await?;
+        }
+
+        if tokio::fs::try_exists(&legacy_workspace_docs_dir).await? {
+            let legacy_note = legacy_workspace_docs_dir.join("README.md");
+            tokio::fs::write(
+                legacy_note,
+                "# Legacy workspace-docs (Deprecated)\n\nThis directory is retained for backward compatibility.\nUse root `SETUP.md`, root `TEST.md`, and `.toon` files (`setup/`, `tests/`, `test_cases/`) as the canonical contract.\n",
+            )
+            .await?;
         }
 
         if !tokio::fs::try_exists(&frontends_manifest_file).await? {
@@ -776,8 +747,8 @@ Required execution rules:
      - If no repo match exists, mark that PR target as blocked with explicit reason.
 
 5) For each switched target, run full test contract from workspace docs:
-    - Follow `workspace-docs/SETUP.md` preflight and infra checks.
-    - Execute exhaustive coverage from `workspace-docs/TEST_CASES.md`.
+    - Follow root `SETUP.md` preflight and infra checks.
+    - Execute suites declared in `tests/*.toon` and cases in `test_cases/*.toon`.
     - Route-visit checks are NOT enough; execute deep functional workflows from Section 12.
     - Required functional examples (must run and be recorded):
       - add user/employee and verify it appears in list/detail
@@ -1038,7 +1009,7 @@ if tmux has-session -t "${SESSION_NAME}" 2>/dev/null; then
 fi
 
 tmux new-session -d -s "${SESSION_NAME}" -n "app" -c "${ROOT_DIR}"
-tmux send-keys -t "${SESSION_NAME}:app" "echo 'Update scripts/dev-tmux-session.sh with your real service commands from workspace-docs/SETUP.md'" C-m
+tmux send-keys -t "${SESSION_NAME}:app" "echo 'Update scripts/dev-tmux-session.sh with your real service commands from SETUP.md and setup/*.toon'" C-m
 
 echo "tmux session ${SESSION_NAME} created"
 echo "attach with: tmux attach -t ${SESSION_NAME}"

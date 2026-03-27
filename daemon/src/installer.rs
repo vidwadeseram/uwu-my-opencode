@@ -532,6 +532,16 @@ pub fn run_install(
         "removing default site",
         &["rm", "-f", "/etc/nginx/sites-enabled/default"],
     );
+    if skip_ssl {
+        run_sudo(
+            "removing stale ssl enabled site (skip-ssl mode)",
+            &["rm", "-f", "/etc/nginx/sites-enabled/uwu-my-opencode-ssl"],
+        );
+        run_sudo(
+            "removing stale ssl available site (skip-ssl mode)",
+            &["rm", "-f", "/etc/nginx/sites-available/uwu-my-opencode-ssl"],
+        );
+    }
     run_sudo("testing nginx", &["nginx", "-t"]);
     run_sudo("restarting nginx", &["systemctl", "restart", "nginx"]);
 

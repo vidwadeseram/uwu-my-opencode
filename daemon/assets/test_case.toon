@@ -1,0 +1,12 @@
+context:
+  kind: case
+  version: 1.0
+  id: FUNC-LOGIN-001
+  task: login happy path
+  repo: default
+steps[5]{id,action,target,value}:
+  1,visit,/login,
+  2,fill,input[name=email],demo@example.com
+  3,fill,input[name=password],change-me
+  4,click,button[type=submit],
+  5,assert-url-contains,/dashboard,

@@ -1,15 +1,20 @@
-# Workspace Setup Guide Pointer
+# Setup Contract
 
-Canonical setup instructions are located in:
+This workspace uses root-level setup guidance plus machine-readable `.toon` setup files.
 
-- `workspace-docs/SETUP.md`
+## Canonical Sources
 
-This includes:
+- Human-readable setup contract: `SETUP.md` (this file)
+- Machine-readable setup steps: `setup/*.toon`
 
-- PostgreSQL bootstrap and migrations
-- API env normalization
-- tmux startup contract for all required backend APIs
-- merchant signup OTP retrieval from tmux `commons-api`
-- report artifact validation and manual quality gates
+## Required Setup Flow
 
-If this file is short, use `workspace-docs/SETUP.md` as the source of truth.
+1. Validate environment prerequisites (runtime, services, credentials).
+2. Run setup commands defined in `setup/*.toon`.
+3. Confirm health checks declared in setup contracts.
+4. Proceed to suites from `tests/*.toon` only after setup is healthy.
+
+## Notes
+
+- Keep `SETUP.md` focused on operator flow and troubleshooting.
+- Keep execution details in `.toon` files so API/MCP validation can enforce structure.

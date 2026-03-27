@@ -11,11 +11,13 @@ Self-hosted browser access to a persistent tmux workspace running forked `openco
   - `/host-project`, `/run-project`, `/start-test`, `/tmux-test-log`, and `/publish-frontends` command templates
   - frontend manifest `.opencode/frontends.json`
   - `/start-test` supports default `main`, branch/PR targets, and `--repo` filtering for multi-repo workspaces
-- Per-workspace documentation is generated under `workspace-docs/`:
-  - `workspace-docs/TEMPLATE.md` (compact execution contract)
-  - `workspace-docs/SETUP.md` (runtime and OTP/setup guide)
-  - `workspace-docs/TEST_CASES.md` (full test matrix)
-- Root `TEMPLATE.md` and `SETUP.md` are compact pointers to `workspace-docs/`.
+- Per-workspace root docs are generated automatically:
+  - `SETUP.md` (operator setup contract)
+  - `TEST.md` (suite orchestration contract)
+- Structured machine-readable contracts are generated as `.toon` files:
+  - `setup/*.toon`
+  - `tests/*.toon`
+  - `test_cases/*.toon`
 - Per-workspace `scripts` scaffolding is generated automatically:
   - `scripts/dev-tmux-session.sh`
   - `scripts/tmux-test-log.sh`
@@ -24,6 +26,19 @@ Self-hosted browser access to a persistent tmux workspace running forked `openco
 - Dashboard includes `Test Reports` page in navbar at `/test-reports` to show all workspace runs with date, status, success rate, and HTML links.
 - Installer provisions `cloudflared` so hosted frontend publishing is available immediately.
 - Installer provisions Playwright + Chromium (`playwright install --with-deps chromium`) for headless test runs with screenshots and video.
+- `.toon` run API now supports both UI and API steps (`visit`, `fill`, `click`, `assert-url-contains`, `api-request`, `assert-status`, `assert-body-contains`).
+- `.toon` run safety/hardening:
+  - strict contract validation before execution
+  - per-workspace run lock (parallel run attempts return `409`)
+  - optional run cancellation endpoint (`/toon/cancel`)
+  - base URL allowlist enforcement (localhost/127.0.0.1 + allowed workspace ports)
+- MCP aliases are available for orchestration clients:
+- `/api/mcp/workspaces/{id}/toon/validate`
+- `/api/mcp/workspaces/{id}/toon/fill`
+- `/api/mcp/workspaces/{id}/toon/infer`
+- `/api/mcp/workspaces/{id}/toon/run`
+- `/api/mcp/workspaces/{id}/toon/cancel`
+- `.toon` infer endpoint can scan discovered workspace repositories and generate inferred business-logic cases in the selected target repo (`test_cases/auto-logic-*.toon`), then refresh `tests/smoke.toon`, `SETUP.md`, and `TEST.md`.
 - ttyd auth is enabled: `admin` / `admin`.
 
 ## Running Projects Contract
@@ -36,9 +51,11 @@ This is the agent-facing contract for the dashboard `Start`, `Stop`, `Publish Fr
 - `TMUX Test Log` captures panes from the workspace-named tmux session only and writes logs under `logs/tmux/`.
 - HTML test run links are listed in `/test-reports` and each run opens `/test-reports/{workspace}/{run_id}/index.html`.
 - New workspaces are scaffolded with:
-  - `workspace-docs/TEMPLATE.md`
-  - `workspace-docs/SETUP.md`
-  - `workspace-docs/TEST_CASES.md`
+  - `SETUP.md`
+  - `TEST.md`
+  - `setup/default.toon`
+  - `tests/smoke.toon`
+  - `test_cases/login-flow.toon`
   - `scripts/dev-tmux-session.sh`
   - `scripts/publish-frontends.sh`
   - `scripts/tmux-test-log.sh`
@@ -46,6 +63,23 @@ This is the agent-facing contract for the dashboard `Start`, `Stop`, `Publish Fr
   - `.opencode/frontends.json`
 
 If hosted URLs are missing after start, run `Publish Frontends` after frontend processes are listening on the declared ports.
+
+## Repo/Test Context (Dashboard)
+
+The dashboard section shown as **Repo/Test Context** controls where `.toon` validation/runs resolve files and what execution scope is assumed.
+
+- `Repository`:
+  - selects the target repo root inside a workspace
+  - current configured value in your VM: `pos-ai-automation - /root/workspaces/allinonepos/pos-ai-automation`
+- `Init: success (timestamp)`:
+  - last workspace scaffold/init result from `/init`
+  - `success` means setup/test scaffold files exist and last init finished cleanly
+- `Structure: ready`:
+  - required scaffold (`SETUP.md`, `TEST.md`, `setup/`, `tests/`, `test_cases/`) is present
+- `Missing: none`:
+  - no required scaffold paths are currently missing
+
+When context is set, `/init`, `/toon/validate`, and `/toon/run` resolve against the selected repository root. If target context is stale/missing, resolution safely falls back to workspace root.
 
 ## Test Reports Page
 
@@ -57,6 +91,10 @@ If hosted URLs are missing after start, run `Publish Frontends` after frontend p
   - success rate (`passed / total`) with blocked count visibility
   - tested scope + evidence quality warnings
   - HTML report link
+- `/test-reports` now supports a template-first page render. If `daemon/static/test-reports.template.html` exists, tokens are replaced at runtime:
+  - `[[REPORTS_API]]` -> `/api/test-reports`
+  - `[[REPORTS_TITLE]]` -> `Workspace Test Reports`
+  - Falls back to `daemon/static/test-reports.html` when template file is absent.
 
 Data source expectations per run folder:
 
@@ -67,6 +105,15 @@ Data source expectations per run folder:
 - `logs/{run_id}/video/`
 
 If `manifest.json`, screenshots, or video are missing, the run appears with issue notes.
+
+## Report Database (Optional)
+
+- You can persist run summaries to PostgreSQL for `/api/test-reports`.
+- Configure one of these environment variables for `uwu-daemon`:
+  - `UWU_REPORT_DB_URL`
+  - `DATABASE_URL` (fallback if `UWU_REPORT_DB_URL` is not set)
+- When DB is configured, daemon initializes `toon_run_reports` and writes each run summary on `toon/run`.
+- `/api/test-reports` prefers DB rows when available and falls back to filesystem run logs otherwise.
 
 ## Repository Layout
 

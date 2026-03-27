@@ -13,6 +13,8 @@ use commander::CommanderState;
 use config::{AppConfig, Cli};
 use server::{create_router, AppContext};
 use state::StateManager;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 use supervisor::ProcessSupervisor;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -106,6 +108,8 @@ async fn main() -> anyhow::Result<()> {
         state,
         supervisor: supervisor.clone(),
         commander: CommanderState::new(config.tmux_bin.clone()),
+        run_locks: Arc::new(Mutex::new(HashSet::new())),
+        run_processes: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let router = create_router(ctx);
