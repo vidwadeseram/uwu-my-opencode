@@ -65,6 +65,25 @@ NEXT_PUBLIC_BASE_URL_IPG="https://ipg.dev.marxpos.com"
 - `pos-customer/.env`
 - `pos-mobile/.env`
 
+### Production Frontend Configuration (with Cloudflare Tunnel)
+
+For production deployments using Cloudflare Tunnel, update the `.env` files with public URLs instead of localhost:
+
+```env
+NEXT_PUBLIC_BASE_URL_IDENTITY="https://identity.vidwadeseram.com"
+NEXT_PUBLIC_BASE_URL_COMMONS="http://localhost:8003"
+NEXT_PUBLIC_BASE_URL_CUSTOMER="http://localhost:8002"
+NEXT_PUBLIC_BASE_URL_INVENTORY="http://localhost:8004"
+NEXT_PUBLIC_BASE_URL_LORO="http://localhost:8005"
+NEXT_PUBLIC_BASE_URL_PAYMENT="http://localhost:8006"
+NEXT_PUBLIC_BASE_URL_IPG="https://ipg.dev.marxpos.com"
+```
+
+**Important:** After updating `.env` files, rebuild the frontend:
+```bash
+cd pos-web && bun run build:production
+```
+
 ### Before Running Services
 
 For API services, allow direnv to load the environment:
