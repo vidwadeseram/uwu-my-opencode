@@ -721,16 +721,11 @@ async fn stop_declared_frontends(ctx: &AppContext, ws: &crate::state::Workspace)
         }
     }
 
-    for port in &declared_ports {
-        let _ = Command::new("pkill")
-            .args(["-f", &format!("next-server.*{}", port)])
-            .output()
-            .await;
-        let _ = Command::new("pkill")
-            .args(["-f", &format!(":{}", port)])
-            .output()
-            .await;
-    }
+    let workspace_path = ws.path.to_string_lossy();
+    let _ = Command::new("pkill")
+        .args(["-f", &workspace_path])
+        .output()
+        .await;
 
     stopped
 }
