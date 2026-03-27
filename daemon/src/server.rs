@@ -711,6 +711,7 @@ async fn stop_frontends(
 async fn stop_declared_frontends(ctx: &AppContext, ws: &crate::state::Workspace) -> Vec<u16> {
     let tunnel_mgr = TunnelManager::new(ctx.config.clone(), ctx.supervisor.clone());
     let existing_tunnels = ctx.state.list_tunnels(&ws.id).await;
+    let declared_ports = declared_frontend_ports(&ws.path).await;
     let mut stopped = Vec::new();
 
     for tunnel in existing_tunnels {
@@ -718,6 +719,17 @@ async fn stop_declared_frontends(ctx: &AppContext, ws: &crate::state::Workspace)
             let _ = ctx.state.remove_tunnel(&ws.id, tunnel.local_port).await;
             stopped.push(tunnel.local_port);
         }
+    }
+
+    for port in &declared_ports {
+        let _ = Command::new("pkill")
+            .args(["-f", &format!("next dev.*{}\"", port)])
+            .output()
+            .await;
+        let _ = Command::new("pkill")
+            .args(["-f", &format!(":{}", port)])
+            .output()
+            .await;
     }
 
     stopped
