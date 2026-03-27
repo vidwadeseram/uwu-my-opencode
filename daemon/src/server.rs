@@ -723,7 +723,7 @@ async fn stop_declared_frontends(ctx: &AppContext, ws: &crate::state::Workspace)
 
     for port in &declared_ports {
         let _ = Command::new("pkill")
-            .args(["-f", &format!("next dev.*{}\"", port)])
+            .args(["-f", &format!("next-server.*{}", port)])
             .output()
             .await;
         let _ = Command::new("pkill")
